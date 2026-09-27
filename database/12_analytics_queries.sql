@@ -1,97 +1,139 @@
-CREATE OR REPLACE FUNCTION calculate_risk(p_transaction_id IN NUMBER)
-RETURN NUMBER
-IS
-  v_amount bank_transaction.amount%TYPE;
-  v_account_id bank_transaction.account_id%TYPE;
-  v_device_id bank_transaction.device_id%TYPE;
-  v_location bank_transaction.location%TYPE;
-  v_txn_time bank_transaction.transaction_time%TYPE;
-  v_score NUMBER := 0;
-  v_recent_count NUMBER := 0;
-  v_device_seen NUMBER := 0;
-  v_location_match NUMBER := 0;
-BEGIN
-  SELECT amount, account_id, device_id, location, transaction_time
-  INTO v_amount, v_account_id, v_device_id, v_location, v_txn_time
-  FROM bank_transaction
-  WHERE transaction_id = p_transaction_id;
+SELECT COUNT(*) AS total_transactions,
+       SUM(amount) AS total_amount,
+       ROUND(AVG(amount), 2) AS avg_amount
+FROM bank_transaction;
 
-  IF v_amount > 100000 THEN
-    v_score := v_score + 40;
-  ELSIF v_amount > 50000 THEN
-    v_score := v_score + 25;
-  ELSIF v_amount > 20000 THEN
-    v_score := v_score + 10;
-  END IF;
+SELECT c.customer_id,
+       c.first_name || ' ' || c.last_name AS customer_name,
+       COUNT(t.transaction_id) AS num_transactions,
+       SUM(t.amount) AS total_spent
+FROM customer c
+JOIN account a ON a.customer_id = c.customer_id
+JOIN bank_transaction t ON t.account_id = a.account_id
+GROUP BY c.customer_id, c.first_name, c.last_name
+ORDER BY total_spent DESC;
 
-  SELECT COUNT(*)
-  INTO v_recent_count
-  FROM bank_transaction
-  WHERE account_id = v_account_id
-    AND transaction_id != p_transaction_id
-    AND transaction_time BETWEEN v_txn_time - (10/1440) AND v_txn_time;
+SELECT m.category,
+       COUNT(t.transaction_id) AS num_transactions,
+       SUM(t.amount) AS total_amount
+FROM bank_transaction t
+JOIN merchant m ON m.merchant_id = t.merchant_id
+GROUP BY m.category
+HAVING COUNT(t.transaction_id) > 3
+ORDER BY total_amount DESC;
 
-  IF v_recent_count >= 2 THEN
-    v_score := v_score + 25;
-  ELSIF v_recent_count = 1 THEN
-    v_score := v_score + 15;
-  END IF;
+SELECT risk_level,
+       status,
+       COUNT(*) AS alert_count
+FROM fraud_alert
+GROUP BY risk_level, status
+ORDER BY risk_level, status;
 
-  IF v_device_id IS NOT NULL THEN
-    SELECT COUNT(*)
-    INTO v_device_seen
-    FROM bank_transaction
-    WHERE account_id = v_account_id
-      AND device_id = v_device_id
-      AND transaction_id != p_transaction_id
-      AND transaction_time < v_txn_time;
+SELECT t.transaction_id,
+       a.account_number,
+       t.amount,
+       t.location,
+       fa.risk_score,
+       fa.reason
+FROM bank_transaction t
+JOIN account a ON a.account_id = t.account_id
+JOIN fraud_alert fa ON fa.transaction_id = t.transaction_id
+WHERE fa.risk_level = 'HIGH'
+ORDER BY fa.risk_score DESC;
 
-    IF v_device_seen = 0 THEN
-      v_score := v_score + 20;
-    END IF;
-  END IF;
+SELECT m.merchant_name,
+       m.risk_level AS merchant_risk_level,
+       COUNT(fa.alert_id) AS flagged_count
+FROM merchant m
+JOIN bank_transaction t ON t.merchant_id = m.merchant_id
+JOIN fraud_alert fa ON fa.transaction_id = t.transaction_id
+GROUP BY m.merchant_name, m.risk_level
+ORDER BY flagged_count DESC;
 
-  IF v_location IS NOT NULL THEN
-    SELECT COUNT(*)
-    INTO v_location_match
-    FROM customer_address ca
-    JOIN account a ON a.customer_id = ca.customer_id
-    WHERE a.account_id = v_account_id
-      AND UPPER(ca.city) = UPPER(v_location);
+SELECT t.location,
+       COUNT(fa.alert_id) AS alert_count,
+       ROUND(AVG(fa.risk_score), 2) AS avg_score
+FROM bank_transaction t
+JOIN fraud_alert fa ON fa.transaction_id = t.transaction_id
+GROUP BY t.location
+ORDER BY alert_count DESC;
 
-    IF v_location_match = 0 THEN
-      v_score := v_score + 20;
-    END IF;
-  END IF;
+SELECT d.device_id,
+       d.device_identifier,
+       d.device_type,
+       COUNT(fa.alert_id) AS high_risk_alerts
+FROM device d
+JOIN bank_transaction t ON t.device_id = d.device_id
+JOIN fraud_alert fa ON fa.transaction_id = t.transaction_id
+WHERE fa.risk_level = 'HIGH'
+GROUP BY d.device_id, d.device_identifier, d.device_type
+HAVING COUNT(fa.alert_id) >= 1
+ORDER BY high_risk_alerts DESC;
 
-  RETURN LEAST(v_score, 100);
+SELECT c.customer_id,
+       c.first_name || ' ' || c.last_name AS customer_name,
+       ROUND(AVG(t.amount), 2) AS customer_avg_amount
+FROM customer c
+JOIN account a ON a.customer_id = c.customer_id
+JOIN bank_transaction t ON t.account_id = a.account_id
+GROUP BY c.customer_id, c.first_name, c.last_name
+HAVING AVG(t.amount) > (SELECT AVG(amount) FROM bank_transaction)
+ORDER BY customer_avg_amount DESC;
 
-EXCEPTION
-  WHEN NO_DATA_FOUND THEN
-    RAISE_APPLICATION_ERROR(-20001, 'CALCULATE_RISK: Transaction ID ' || p_transaction_id || ' not found');
-  WHEN OTHERS THEN
-    RAISE_APPLICATION_ERROR(-20099, 'CALCULATE_RISK: Unexpected error - ' || SQLERRM);
-END;
-/
+SELECT txn_date,
+       total_transactions,
+       total_amount,
+       total_amount - LAG(total_amount) OVER (ORDER BY txn_date) AS change_from_prev_day
+FROM v_daily_transaction_analytics
+ORDER BY txn_date;
 
-CREATE OR REPLACE FUNCTION classify_risk(p_score IN NUMBER)
-RETURN VARCHAR2
-IS
-BEGIN
-  IF p_score IS NULL THEN
-    RAISE_APPLICATION_ERROR(-20002, 'CLASSIFY_RISK: Score cannot be NULL');
-  ELSIF p_score < 0 OR p_score > 100 THEN
-    RAISE_APPLICATION_ERROR(-20003, 'CLASSIFY_RISK: Score must be between 0 and 100');
-  ELSIF p_score >= 70 THEN
-    RETURN 'HIGH';
-  ELSIF p_score >= 40 THEN
-    RETURN 'MEDIUM';
-  ELSE
-    RETURN 'LOW';
-  END IF;
+SELECT
+  CASE WHEN sa.account_id IS NOT NULL THEN 'SAVINGS' ELSE 'CURRENT' END AS account_category,
+  COUNT(t.transaction_id) AS num_transactions,
+  ROUND(AVG(t.amount), 2) AS avg_amount
+FROM bank_transaction t
+JOIN account a ON a.account_id = t.account_id
+LEFT JOIN savings_account sa ON sa.account_id = a.account_id
+GROUP BY CASE WHEN sa.account_id IS NOT NULL THEN 'SAVINGS' ELSE 'CURRENT' END;
 
-EXCEPTION
-  WHEN OTHERS THEN
-    RAISE_APPLICATION_ERROR(-20099, 'CLASSIFY_RISK: Unexpected error - ' || SQLERRM);
-END;
-/
+SELECT transaction_id,
+       account_id,
+       amount,
+       transaction_type,
+       transaction_time,
+       RANK() OVER (ORDER BY amount DESC) AS amount_rank
+FROM bank_transaction
+FETCH FIRST 10 ROWS ONLY;
+
+SELECT status,
+       COUNT(*) AS num_alerts,
+       ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct_of_total
+FROM fraud_alert
+GROUP BY status
+ORDER BY num_alerts DESC;
+
+SELECT an.analyst_id,
+       an.name,
+       an.department,
+       SUM(CASE WHEN fa.status = 'OPEN' THEN 1 ELSE 0 END) AS open_alerts,
+       SUM(CASE WHEN fa.status = 'INVESTIGATING' THEN 1 ELSE 0 END) AS investigating_alerts,
+       COUNT(fa.alert_id) AS total_assigned
+FROM fraud_analyst an
+LEFT JOIN fraud_alert fa ON fa.analyst_id = an.analyst_id
+GROUP BY an.analyst_id, an.name, an.department
+ORDER BY total_assigned DESC;
+
+SELECT account_id,
+       transaction_id,
+       transaction_time,
+       amount,
+       LAG(amount) OVER (
+         PARTITION BY account_id
+         ORDER BY transaction_time
+       ) AS prev_amount,
+       amount - LAG(amount) OVER (
+         PARTITION BY account_id
+         ORDER BY transaction_time
+       ) AS amount_jump
+FROM bank_transaction
+ORDER BY account_id, transaction_time;
