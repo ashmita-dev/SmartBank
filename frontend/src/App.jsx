@@ -6,27 +6,24 @@ import {
   ArrowUpRight,
   Bell,
   Building2,
-  CheckCircle2,
   ChevronRight,
   CircleDollarSign,
   Clock3,
-  CreditCard,
   Database,
   LayoutDashboard,
   Menu,
   RefreshCw,
   Search,
-  ShieldAlert,
+  Shield,
   ShieldCheck,
+  Smartphone,
   Users,
   WalletCards,
   X,
-  Zap,
 } from "lucide-react";
 import {
   Area,
   AreaChart,
-  CartesianGrid,
   Cell,
   Pie,
   PieChart,
@@ -37,28 +34,26 @@ import {
 } from "recharts";
 import {
   getAlerts,
+  getAnalystWorkload,
   getDailyAnalytics,
   getKPIs,
   getRiskDistribution,
   getTransactions,
+  updateAlert,
 } from "./api";
 import "./App.css";
 
-const formatCurrency = (value) => {
-  const number = Number(value || 0);
+function formatCurrency(value, currency = "INR") {
+  const amount = Number(value || 0);
 
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(number);
-};
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
 
-const formatNumber = (value) => {
-  return new Intl.NumberFormat("en-IN").format(Number(value || 0));
-};
-
-const formatDate = (value) => {
+function formatDate(value) {
   if (!value) return "—";
 
   const date = new Date(value);
@@ -70,240 +65,152 @@ const formatDate = (value) => {
   return date.toLocaleString("en-IN", {
     day: "2-digit",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-};
+}
 
-const getValue = (object, keys, fallback = 0) => {
-  for (const key of keys) {
-    if (
-      object &&
-      object[key] !== undefined &&
-      object[key] !== null
-    ) {
-      return object[key];
-    }
-  }
-
-  return fallback;
-};
-
-const normalizeRiskData = (data) => {
-  const items = data?.items || data || [];
-
-  if (!Array.isArray(items)) {
-    return [];
-  }
-
-  return items.map((item) => ({
-    name:
-      item.risk_level ||
-      item.riskLevel ||
-      item.level ||
-      item.name ||
-      "Unknown",
-    value: Number(
-      getValue(item, ["count", "total", "value", "transaction_count"], 0)
-    ),
-  }));
-};
-
-const normalizeDailyData = (data) => {
-  const items = data?.items || data || [];
-
-  if (!Array.isArray(items)) {
-    return [];
-  }
-
-  return items.map((item) => ({
-    date:
-      item.transaction_date ||
-      item.date ||
-      item.day ||
-      item.label ||
-      "",
-    transactions: Number(
-      getValue(item, ["transaction_count", "transactions", "count"], 0)
-    ),
-    amount: Number(
-      getValue(item, ["total_amount", "amount", "total"], 0)
-    ),
-  }));
-};
-
-const normalizeTransactions = (data) => {
-  const items = data?.items || data || [];
-
-  if (!Array.isArray(items)) {
-    return [];
-  }
-
-  return items;
-};
-
-const normalizeAlerts = (data) => {
-  const items = data?.items || data || [];
-
-  if (!Array.isArray(items)) {
-    return [];
-  }
-
-  return items;
-};
-
-const riskColors = {
-  LOW: "#22c55e",
-  MEDIUM: "#f59e0b",
-  HIGH: "#ef4444",
-  UNKNOWN: "#64748b",
-};
+function riskClass(level) {
+  return String(level || "LOW").toLowerCase();
+}
 
 function App() {
+  const [activePage, setActivePage] = useState("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [kpis, setKpis] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [riskData, setRiskData] = useState([]);
-  const [dailyData, setDailyData] = useState([]);
+  const [riskDistribution, setRiskDistribution] = useState([]);
+  const [dailyAnalytics, setDailyAnalytics] = useState([]);
+  const [analystWorkload, setAnalystWorkload] = useState([]);
+
+  const [transactionSearch, setTransactionSearch] = useState("");
+  const [alertRiskFilter, setAlertRiskFilter] = useState("ALL");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("overview");
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [updatingAlert, setUpdatingAlert] = useState(false);
 
-  const loadDashboard = async (showRefresh = false) => {
+  async function loadDashboard(showRefresh = false) {
     try {
-      setError("");
-
       if (showRefresh) {
         setRefreshing(true);
       } else {
         setLoading(true);
       }
 
+      setError("");
+
       const [
-        kpiResponse,
-        transactionResponse,
-        alertResponse,
-        riskResponse,
-        dailyResponse,
+        kpiData,
+        transactionData,
+        alertData,
+        riskData,
+        dailyData,
+        workloadData,
       ] = await Promise.all([
         getKPIs(),
         getTransactions(),
         getAlerts(),
         getRiskDistribution(),
         getDailyAnalytics(),
+        getAnalystWorkload(),
       ]);
 
-      setKpis(kpiResponse);
-      setTransactions(normalizeTransactions(transactionResponse));
-      setAlerts(normalizeAlerts(alertResponse));
-      setRiskData(normalizeRiskData(riskResponse));
-      setDailyData(normalizeDailyData(dailyResponse));
-    } catch (err) {
-      setError(
-        "Unable to load SmartBank data. Make sure ORDS and the frontend server are running."
+      setKpis(kpiData || {});
+      setTransactions(
+        Array.isArray(transactionData)
+          ? transactionData
+          : transactionData?.items || []
       );
+      setAlerts(
+        Array.isArray(alertData) ? alertData : alertData?.items || []
+      );
+      setRiskDistribution(
+        Array.isArray(riskData) ? riskData : riskData?.items || []
+      );
+      setDailyAnalytics(
+        Array.isArray(dailyData) ? dailyData : dailyData?.items || []
+      );
+      setAnalystWorkload(
+        Array.isArray(workloadData)
+          ? workloadData
+          : workloadData?.items || []
+      );
+    } catch (err) {
+      setError(err?.message || "Unable to load SmartBank data.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }
 
   useEffect(() => {
     loadDashboard();
   }, []);
 
   const filteredTransactions = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = transactionSearch.trim().toLowerCase();
 
     if (!query) {
-      return transactions.slice(0, 12);
+      return transactions;
     }
 
-    return transactions
-      .filter((transaction) => {
-        const searchable = [
-          transaction.transaction_id,
-          transaction.customer_name,
-          transaction.merchant_name,
-          transaction.merchant,
-          transaction.location,
-          transaction.transaction_status,
-          transaction.status,
-          transaction.transaction_type,
-          transaction.device_type,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+    return transactions.filter((transaction) => {
+      const values = [
+        transaction.transaction_id,
+        transaction.merchant_name,
+        transaction.merchant,
+        transaction.location,
+        transaction.status,
+        transaction.transaction_type,
+        transaction.currency,
+        transaction.device_identifier,
+      ];
 
-        return searchable.includes(query);
-      })
-      .slice(0, 12);
-  }, [transactions, search]);
+      return values.some((value) =>
+        String(value ?? "")
+          .toLowerCase()
+          .includes(query)
+      );
+    });
+  }, [transactions, transactionSearch]);
 
-  const kpiCards = [
-    {
-      label: "Total Customers",
-      value: formatNumber(
-        getValue(kpis, ["total_customers", "customers"], 0)
-      ),
-      icon: Users,
-      className: "blue",
-      trend: "Customer base",
-    },
-    {
-      label: "Active Accounts",
-      value: formatNumber(
-        getValue(kpis, ["total_accounts", "accounts"], 0)
-      ),
-      icon: WalletCards,
-      className: "violet",
-      trend: "Banking accounts",
-    },
-    {
-      label: "Transactions",
-      value: formatNumber(
-        getValue(kpis, ["total_transactions", "transactions"], 0)
-      ),
-      icon: Activity,
-      className: "cyan",
-      trend: "Processed records",
-    },
-    {
-      label: "Flagged Transactions",
-      value: formatNumber(
-        getValue(kpis, ["flagged_transactions", "flagged"], 0)
-      ),
-      icon: ShieldAlert,
-      className: "orange",
-      trend: "Requires attention",
-    },
-    {
-      label: "Open Alerts",
-      value: formatNumber(
-        getValue(kpis, ["open_alerts", "alerts"], 0)
-      ),
-      icon: Bell,
-      className: "red",
-      trend: "Pending investigation",
-    },
-    {
-      label: "High Risk Alerts",
-      value: formatNumber(
-        getValue(kpis, ["high_risk_alerts", "high_risk"], 0)
-      ),
-      icon: AlertTriangle,
-      className: "danger",
-      trend: "Critical priority",
-    },
-  ];
+  const filteredAlerts = useMemo(() => {
+    if (alertRiskFilter === "ALL") {
+      return alerts;
+    }
 
-  const navItems = [
+    return alerts.filter(
+      (alert) =>
+        String(alert.risk_level || "").toUpperCase() === alertRiskFilter
+    );
+  }, [alerts, alertRiskFilter]);
+
+  const highRiskAlerts = useMemo(
+    () =>
+      alerts.filter(
+        (alert) => String(alert.risk_level || "").toUpperCase() === "HIGH"
+      ),
+    [alerts]
+  );
+
+  const openAlerts = useMemo(
+    () =>
+      alerts.filter(
+        (alert) =>
+          String(alert.status || "").toUpperCase() === "OPEN" ||
+          String(alert.status || "").toUpperCase() === "INVESTIGATING"
+      ),
+    [alerts]
+  );
+
+  const navigation = [
     {
       id: "overview",
       label: "Overview",
@@ -312,139 +219,754 @@ function App() {
     {
       id: "transactions",
       label: "Transactions",
-      icon: CreditCard,
+      icon: WalletCards,
     },
     {
       id: "alerts",
       label: "Fraud Alerts",
-      icon: ShieldAlert,
-      badge: alerts.length,
+      icon: Shield,
+      badge: kpis?.open_alerts ?? openAlerts.length,
     },
   ];
 
-  if (loading) {
+  async function handleAlertUpdate(alertId, status) {
+    try {
+      setUpdatingAlert(true);
+
+      await updateAlert(alertId, status);
+
+      const updatedAlerts = await getAlerts();
+
+      setAlerts(
+        Array.isArray(updatedAlerts)
+          ? updatedAlerts
+          : updatedAlerts?.items || []
+      );
+
+      if (selectedAlert?.alert_id === alertId) {
+        setSelectedAlert({
+          ...selectedAlert,
+          status,
+        });
+      }
+    } catch (err) {
+      setError(err?.message || "Unable to update alert.");
+    } finally {
+      setUpdatingAlert(false);
+    }
+  }
+
+  function navigateTo(page) {
+    setActivePage(page);
+    setSidebarOpen(false);
+  }
+
+  function renderOverview() {
+    const chartData = dailyAnalytics.map((item) => ({
+      date:
+        item.date ||
+        item.transaction_date ||
+        item.day ||
+        item.label ||
+        "",
+      transactions:
+        Number(
+          item.transaction_count ??
+            item.transactions ??
+            item.count ??
+            item.total_transactions ??
+            0
+        ),
+      amount: Number(item.total_amount ?? item.amount ?? 0),
+    }));
+
+    const riskData = riskDistribution.map((item) => ({
+      name:
+        item.risk_level ||
+        item.riskLevel ||
+        item.level ||
+        item.name ||
+        "UNKNOWN",
+      value: Number(item.count ?? item.alert_count ?? item.value ?? 0),
+    }));
+
+    const riskColors = {
+      HIGH: "#ff5c6c",
+      MEDIUM: "#ffb84d",
+      LOW: "#27d7a1",
+    };
+
     return (
-      <div className="loading-screen">
-        <div className="loading-orbit">
-          <div className="loading-core">
-            <ShieldCheck size={30} />
+      <>
+        <section className="hero-section">
+          <div>
+            <div className="eyebrow">
+              <Activity size={15} />
+              REAL-TIME FRAUD MONITORING
+            </div>
+
+            <h1>
+              Banking security, <span>intelligently monitored.</span>
+            </h1>
+
+            <p>
+              Monitor transactions, investigate suspicious activity, and
+              identify high-risk behavior from one centralized intelligence
+              dashboard.
+            </p>
           </div>
-        </div>
 
-        <h1>SmartBank</h1>
-        <p>Connecting to fraud intelligence engine...</p>
+          <div className="protection-card">
+            <div className="protection-icon">
+              <ShieldCheck size={23} />
+            </div>
+            <div>
+              <strong>Protection Active</strong>
+              <span>Fraud detection engine operational</span>
+            </div>
+          </div>
+        </section>
 
-        <div className="loading-bar">
-          <span />
-        </div>
-      </div>
+        <section className="section-heading">
+          <div>
+            <div className="section-label">SYSTEM OVERVIEW</div>
+            <h2>Security at a glance</h2>
+          </div>
+
+          <div className="live-database">
+            <span className="live-dot" />
+            Live database data
+          </div>
+        </section>
+
+        <section className="kpi-grid">
+          <KpiCard
+            icon={<Users size={21} />}
+            value={kpis?.total_customers ?? 0}
+            label="Total Customers"
+            footer="Customer base"
+            tone="blue"
+          />
+
+          <KpiCard
+            icon={<WalletCards size={21} />}
+            value={kpis?.total_accounts ?? 0}
+            label="Active Accounts"
+            footer="Banking accounts"
+            tone="purple"
+          />
+
+          <KpiCard
+            icon={<Activity size={21} />}
+            value={kpis?.total_transactions ?? 0}
+            label="Transactions"
+            footer="Processed records"
+            tone="cyan"
+          />
+
+          <KpiCard
+            icon={<Shield size={21} />}
+            value={kpis?.flagged_transactions ?? 0}
+            label="Flagged Transactions"
+            footer="Requires attention"
+            tone="amber"
+          />
+
+          <KpiCard
+            icon={<Bell size={21} />}
+            value={kpis?.open_alerts ?? 0}
+            label="Open Alerts"
+            footer="Pending investigation"
+            tone="red"
+          />
+
+          <KpiCard
+            icon={<AlertTriangle size={21} />}
+            value={kpis?.high_risk_alerts ?? 0}
+            label="High Risk Alerts"
+            footer="Critical priority"
+            tone="red"
+          />
+        </section>
+
+        <section className="analytics-grid">
+          <div className="panel activity-panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-label">TRANSACTION ACTIVITY</div>
+                <h3>Daily transaction volume</h3>
+              </div>
+
+              <div className="panel-icon cyan">
+                <Activity size={20} />
+              </div>
+            </div>
+
+            <div className="chart-container">
+              {chartData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient
+                        id="transactionGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#27d7ff"
+                          stopOpacity={0.32}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#27d7ff"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+
+                    <XAxis
+                      dataKey="date"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#657189", fontSize: 11 }}
+                    />
+
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#657189", fontSize: 11 }}
+                    />
+
+                    <Tooltip
+                      contentStyle={{
+                        background: "#101827",
+                        border: "1px solid #263449",
+                        borderRadius: 12,
+                        color: "#fff",
+                      }}
+                    />
+
+                    <Area
+                      type="monotone"
+                      dataKey="transactions"
+                      stroke="#27d7ff"
+                      strokeWidth={2}
+                      fill="url(#transactionGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState text="No daily analytics available." />
+              )}
+            </div>
+          </div>
+
+          <div className="panel risk-panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-label">RISK INTELLIGENCE</div>
+                <h3>Risk distribution</h3>
+              </div>
+
+              <div className="panel-icon red">
+                <Shield size={20} />
+              </div>
+            </div>
+
+            <div className="risk-chart">
+              {riskData.length ? (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={riskData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={64}
+                        outerRadius={92}
+                        paddingAngle={4}
+                      >
+                        {riskData.map((entry, index) => (
+                          <Cell
+                            key={`${entry.name}-${index}`}
+                            fill={riskColors[entry.name] || "#657189"}
+                          />
+                        ))}
+                      </Pie>
+
+                      <Tooltip
+                        contentStyle={{
+                          background: "#101827",
+                          border: "1px solid #263449",
+                          borderRadius: 12,
+                          color: "#fff",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  <div className="risk-legend">
+                    {riskData.map((item) => (
+                      <div className="risk-legend-item" key={item.name}>
+                        <span
+                          className="risk-dot"
+                          style={{
+                            background:
+                              riskColors[item.name] || "#657189",
+                          }}
+                        />
+                        <span>{item.name}</span>
+                        <strong>{item.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <EmptyState text="No risk distribution available." />
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="content-grid">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-label">TRANSACTION MONITORING</div>
+                <h3>Recent transactions</h3>
+              </div>
+
+              <button
+                className="text-button"
+                onClick={() => navigateTo("transactions")}
+              >
+                View all
+                <ChevronRight size={15} />
+              </button>
+            </div>
+
+            <TransactionTable
+              transactions={transactions.slice(0, 7)}
+              compact
+            />
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-label">FRAUD INTELLIGENCE</div>
+                <h3>Recent alerts</h3>
+              </div>
+
+              <button
+                className="text-button"
+                onClick={() => navigateTo("alerts")}
+              >
+                View all
+                <ChevronRight size={15} />
+              </button>
+            </div>
+
+            <div className="alert-list">
+              {highRiskAlerts.length ? (
+                highRiskAlerts.slice(0, 5).map((alert) => (
+                  <button
+                    className="alert-row"
+                    key={alert.alert_id}
+                    onClick={() => setSelectedAlert(alert)}
+                  >
+                    <div className="alert-row-icon">
+                      <AlertTriangle size={17} />
+                    </div>
+
+                    <div className="alert-row-content">
+                      <strong>
+                        Alert #{alert.alert_id}
+                      </strong>
+                      <span>
+                        {alert.reason || "Suspicious transaction detected"}
+                      </span>
+                    </div>
+
+                    <div className="alert-row-right">
+                      <span className={`risk-badge ${riskClass(alert.risk_level)}`}>
+                        {alert.risk_level}
+                      </span>
+                      <ChevronRight size={15} />
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <EmptyState text="No high-risk alerts found." />
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="panel protection-panel">
+          <div className="protection-large-icon">
+            <ShieldCheck size={25} />
+          </div>
+
+          <div className="protection-copy">
+            <div className="section-label">SMARTBANK FRAUD ENGINE</div>
+            <h3>Continuous transaction protection</h3>
+            <p>
+              SmartBank evaluates transaction behavior using risk scoring,
+              device intelligence, location signals, and transaction patterns
+              to identify suspicious activity.
+            </p>
+          </div>
+
+          <div className="protection-stats">
+            <div>
+              <span>Detection</span>
+              <strong>ACTIVE</strong>
+            </div>
+            <div>
+              <span>Database</span>
+              <strong>CONNECTED</strong>
+            </div>
+          </div>
+        </section>
+      </>
     );
+  }
+
+  function renderTransactions() {
+    return (
+      <>
+        <PageHeader
+          eyebrow="TRANSACTION MONITORING"
+          title="Transaction intelligence"
+          description="Search and inspect transaction activity directly from the SmartBank database."
+        />
+
+        <section className="toolbar">
+          <div className="search-box">
+            <Search size={18} />
+            <input
+              value={transactionSearch}
+              onChange={(event) =>
+                setTransactionSearch(event.target.value)
+              }
+              placeholder="Search merchant, location, status, transaction ID..."
+            />
+
+            {transactionSearch && (
+              <button onClick={() => setTransactionSearch("")}>
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <div className="result-count">
+            {filteredTransactions.length} transactions
+          </div>
+        </section>
+
+        <section className="panel full-panel">
+          <TransactionTable transactions={filteredTransactions} />
+        </section>
+      </>
+    );
+  }
+
+  function renderAlerts() {
+    return (
+      <>
+        <PageHeader
+          eyebrow="FRAUD OPERATIONS"
+          title="Fraud alert center"
+          description="Review suspicious activity, investigate risk signals, and update alert status."
+        />
+
+        <section className="alert-summary-grid">
+          <SummaryCard
+            icon={<Bell size={20} />}
+            label="Open alerts"
+            value={kpis?.open_alerts ?? openAlerts.length}
+          />
+
+          <SummaryCard
+            icon={<AlertTriangle size={20} />}
+            label="High risk"
+            value={kpis?.high_risk_alerts ?? highRiskAlerts.length}
+          />
+
+          <SummaryCard
+            icon={<Shield size={20} />}
+            label="Total alerts"
+            value={alerts.length}
+          />
+        </section>
+
+        <section className="toolbar">
+          <div className="filter-group">
+            {["ALL", "HIGH", "MEDIUM", "LOW"].map((level) => (
+              <button
+                key={level}
+                className={
+                  alertRiskFilter === level ? "filter active" : "filter"
+                }
+                onClick={() => setAlertRiskFilter(level)}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+
+          <div className="result-count">
+            {filteredAlerts.length} alerts
+          </div>
+        </section>
+
+        <section className="panel full-panel">
+          <div className="alert-table">
+            <div className="alert-table-head">
+              <span>Alert</span>
+              <span>Risk</span>
+              <span>Score</span>
+              <span>Reason</span>
+              <span>Status</span>
+              <span />
+            </div>
+
+            {filteredAlerts.length ? (
+              filteredAlerts.map((alert) => (
+                <button
+                  className="alert-table-row"
+                  key={alert.alert_id}
+                  onClick={() => setSelectedAlert(alert)}
+                >
+                  <span className="alert-id">
+                    #{alert.alert_id}
+                  </span>
+
+                  <span>
+                    <span
+                      className={`risk-badge ${riskClass(
+                        alert.risk_level
+                      )}`}
+                    >
+                      {alert.risk_level || "LOW"}
+                    </span>
+                  </span>
+
+                  <span className="score">
+                    {alert.risk_score ?? 0}/100
+                  </span>
+
+                  <span className="reason-cell">
+                    {alert.reason || "Suspicious activity"}
+                  </span>
+
+                  <span>
+                    <span
+                      className={`status-badge ${String(
+                        alert.status || "OPEN"
+                      ).toLowerCase()}`}
+                    >
+                      {alert.status || "OPEN"}
+                    </span>
+                  </span>
+
+                  <span>
+                    <ChevronRight size={17} />
+                  </span>
+                </button>
+              ))
+            ) : (
+              <EmptyState text="No alerts match this filter." />
+            )}
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  function renderWorkload() {
+    return (
+      <>
+        <PageHeader
+          eyebrow="OPERATIONS"
+          title="Analyst workload"
+          description="Fraud investigation workload based on the live SmartBank alert data."
+        />
+
+        <section className="workload-grid">
+          {analystWorkload.length ? (
+            analystWorkload.map((analyst) => (
+              <div className="panel analyst-card" key={analyst.analyst_id}>
+                <div className="analyst-avatar">
+                  {(analyst.name || "A").charAt(0).toUpperCase()}
+                </div>
+
+                <div className="analyst-info">
+                  <h3>{analyst.name || "Analyst"}</h3>
+                  <span>
+                    {analyst.department || "Fraud Operations"}
+                  </span>
+                </div>
+
+                <div className="analyst-number">
+                  <strong>
+                    {analyst.open_alerts ??
+                      analyst.alert_count ??
+                      analyst.total_alerts ??
+                      0}
+                  </strong>
+                  <span>Alerts</span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <EmptyState text="No analyst workload data available." />
+          )}
+        </section>
+      </>
+    );
+  }
+
+  function renderPage() {
+    if (loading) {
+      return (
+        <div className="loading-screen">
+          <div className="loading-spinner" />
+          <span>Loading SmartBank intelligence...</span>
+        </div>
+      );
+    }
+
+    if (activePage === "transactions") {
+      return renderTransactions();
+    }
+
+    if (activePage === "alerts") {
+      return renderAlerts();
+    }
+
+    if (activePage === "workload") {
+      return renderWorkload();
+    }
+
+    return renderOverview();
   }
 
   return (
     <div className="app-shell">
-      <div
-        className={`mobile-overlay ${sidebarOpen ? "show" : ""}`}
-        onClick={() => setSidebarOpen(false)}
-      />
+      {sidebarOpen && (
+        <button
+          className="mobile-overlay"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
 
-      <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
+      <aside className={sidebarOpen ? "sidebar open" : "sidebar"}>
         <div className="brand">
-          <div className="brand-mark">
-            <ShieldCheck size={25} />
+          <div className="brand-icon">
+            <Shield size={24} />
           </div>
 
           <div>
-            <div className="brand-name">SmartBank</div>
-            <div className="brand-subtitle">Fraud Intelligence</div>
+            <strong>SmartBank</strong>
+            <span>FRAUD INTELLIGENCE</span>
           </div>
-
-          <button
-            className="sidebar-close"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X size={19} />
-          </button>
         </div>
 
         <div className="sidebar-section-label">MONITORING</div>
 
-        <nav className="sidebar-nav">
-          {navItems.map((item) => {
+        <nav className="navigation">
+          {navigation.map((item) => {
             const Icon = item.icon;
 
             return (
               <button
                 key={item.id}
-                className={`nav-item ${
-                  activeSection === item.id ? "active" : ""
-                }`}
-                onClick={() => {
-                  setActiveSection(item.id);
-                  setSidebarOpen(false);
-
-                  const target =
-                    item.id === "transactions"
-                      ? "transactions-section"
-                      : item.id === "alerts"
-                        ? "alerts-section"
-                        : "overview-section";
-
-                  document
-                    .getElementById(target)
-                    ?.scrollIntoView({ behavior: "smooth" });
-                }}
+                className={
+                  activePage === item.id
+                    ? "nav-item active"
+                    : "nav-item"
+                }
+                onClick={() => navigateTo(item.id)}
               >
                 <Icon size={19} />
                 <span>{item.label}</span>
 
-                {item.badge ? (
+                {item.badge > 0 && (
                   <span className="nav-badge">{item.badge}</span>
-                ) : null}
+                )}
               </button>
             );
           })}
         </nav>
 
-        <div className="sidebar-section-label">SYSTEM</div>
+        <div className="sidebar-section-label system-label">SYSTEM</div>
 
         <div className="system-status">
-          <div className="status-dot" />
+          <span className="status-dot" />
           <div>
             <strong>System Online</strong>
             <span>Oracle + ORDS connected</span>
           </div>
         </div>
 
-        <div className="sidebar-bottom">
-          <div className="database-card">
-            <Database size={17} />
-            <div>
-              <strong>Oracle 21c XE</strong>
-              <span>SmartBank Database</span>
-            </div>
+        <button
+          className={
+            activePage === "workload"
+              ? "nav-item bottom-nav active"
+              : "nav-item bottom-nav"
+          }
+          onClick={() => navigateTo("workload")}
+        >
+          <Users size={19} />
+          <span>Analyst Workload</span>
+        </button>
+
+        <div className="database-card">
+          <Database size={19} />
+          <div>
+            <strong>Oracle 21c XE</strong>
+            <span>SmartBank Database</span>
           </div>
         </div>
       </aside>
 
       <main className="main-content">
         <header className="topbar">
-          <button
-            className="menu-button"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu size={21} />
-          </button>
+          <div className="topbar-left">
+            <button
+              className="mobile-menu"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu size={22} />
+            </button>
 
-          <div className="breadcrumb">
-            <span>SmartBank</span>
-            <ChevronRight size={15} />
-            <strong>Fraud Operations Center</strong>
+            <div className="breadcrumb">
+              <span>SmartBank</span>
+              <ChevronRight size={14} />
+              <strong>
+                {activePage === "overview"
+                  ? "Fraud Operations Center"
+                  : activePage === "transactions"
+                  ? "Transactions"
+                  : activePage === "alerts"
+                  ? "Fraud Alerts"
+                  : "Analyst Workload"}
+              </strong>
+            </div>
           </div>
 
-          <div className="topbar-actions">
-            <div className="live-indicator">
-              <span />
+          <div className="topbar-right">
+            <div className="live-status">
+              <span className="live-dot" />
               LIVE
             </div>
 
@@ -462,7 +984,8 @@ function App() {
 
             <div className="profile">
               <div className="profile-avatar">SB</div>
-              <div className="profile-text">
+
+              <div>
                 <strong>Fraud Analyst</strong>
                 <span>Operations</span>
               </div>
@@ -470,582 +993,253 @@ function App() {
           </div>
         </header>
 
-        <section className="dashboard-content" id="overview-section">
-          <div className="hero">
-            <div>
-              <div className="eyebrow">
-                <Zap size={14} />
-                REAL-TIME FRAUD MONITORING
-              </div>
-
-              <h1>
-                Banking security,
-                <span> intelligently monitored.</span>
-              </h1>
-
-              <p>
-                Monitor transactions, investigate suspicious activity,
-                and identify high-risk behavior from one centralized
-                intelligence dashboard.
-              </p>
-            </div>
-
-            <div className="hero-status">
-              <div className="hero-status-icon">
-                <ShieldCheck size={24} />
-              </div>
-
-              <div>
-                <strong>Protection Active</strong>
-                <span>Fraud detection engine operational</span>
-              </div>
-            </div>
-          </div>
-
+        <div className="page-content">
           {error && (
             <div className="error-banner">
               <AlertTriangle size={18} />
               <span>{error}</span>
 
-              <button onClick={() => loadDashboard()}>
+              <button onClick={() => loadDashboard(true)}>
                 Retry
               </button>
             </div>
           )}
 
-          <div className="section-heading">
-            <div>
-              <span className="section-kicker">SYSTEM OVERVIEW</span>
-              <h2>Security at a glance</h2>
-            </div>
+          {renderPage()}
+        </div>
+      </main>
 
-            <div className="updated">
-              <Clock3 size={15} />
-              Live database data
-            </div>
-          </div>
-
-          <div className="kpi-grid">
-            {kpiCards.map((card) => {
-              const Icon = card.icon;
-
-              return (
-                <div
-                  className={`kpi-card ${card.className}`}
-                  key={card.label}
-                >
-                  <div className="kpi-top">
-                    <div className="kpi-icon">
-                      <Icon size={20} />
-                    </div>
-
-                    <span className="kpi-arrow">
-                      <ArrowUpRight size={16} />
-                    </span>
-                  </div>
-
-                  <div className="kpi-value">{card.value}</div>
-
-                  <div className="kpi-label">{card.label}</div>
-
-                  <div className="kpi-footer">
-                    <span>{card.trend}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="analytics-grid">
-            <section className="panel large-panel">
-              <div className="panel-header">
-                <div>
-                  <span className="section-kicker">
-                    TRANSACTION ACTIVITY
-                  </span>
-                  <h3>Daily transaction volume</h3>
-                </div>
-
-                <div className="panel-icon cyan">
-                  <Activity size={18} />
-                </div>
-              </div>
-
-              <div className="chart-container">
-                {dailyData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={dailyData}>
-                      <defs>
-                        <linearGradient
-                          id="transactionGradient"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="0%"
-                            stopColor="#22d3ee"
-                            stopOpacity={0.35}
-                          />
-                          <stop
-                            offset="100%"
-                            stopColor="#22d3ee"
-                            stopOpacity={0}
-                          />
-                        </linearGradient>
-                      </defs>
-
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="#273244"
-                        vertical={false}
-                      />
-
-                      <XAxis
-                        dataKey="date"
-                        stroke="#64748b"
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                      />
-
-                      <YAxis
-                        stroke="#64748b"
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 11 }}
-                      />
-
-                      <Tooltip
-                        contentStyle={{
-                          background: "#111827",
-                          border: "1px solid #263244",
-                          borderRadius: "12px",
-                          color: "#fff",
-                        }}
-                      />
-
-                      <Area
-                        type="monotone"
-                        dataKey="transactions"
-                        stroke="#22d3ee"
-                        strokeWidth={2.5}
-                        fill="url(#transactionGradient)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="empty-state">
-                    <Activity size={28} />
-                    <span>No daily analytics available</span>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            <section className="panel risk-panel">
-              <div className="panel-header">
-                <div>
-                  <span className="section-kicker">
-                    RISK INTELLIGENCE
-                  </span>
-                  <h3>Risk distribution</h3>
-                </div>
-
-                <div className="panel-icon red">
-                  <ShieldAlert size={18} />
-                </div>
-              </div>
-
-              <div className="risk-chart">
-                {riskData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={riskData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={65}
-                        outerRadius={95}
-                        paddingAngle={5}
-                        stroke="none"
-                      >
-                        {riskData.map((entry, index) => {
-                          const riskName =
-                            String(entry.name || "UNKNOWN")
-                              .toUpperCase();
-
-                          return (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={
-                                riskColors[riskName] ||
-                                riskColors.UNKNOWN
-                              }
-                            />
-                          );
-                        })}
-                      </Pie>
-
-                      <Tooltip
-                        contentStyle={{
-                          background: "#111827",
-                          border: "1px solid #263244",
-                          borderRadius: "12px",
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="empty-state">
-                    <ShieldAlert size={28} />
-                    <span>No risk data</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="risk-legend">
-                {riskData.map((item) => {
-                  const name = String(item.name || "UNKNOWN")
-                    .toUpperCase();
-
-                  return (
-                    <div className="risk-item" key={name}>
-                      <div className="risk-name">
-                        <span
-                          className="risk-dot"
-                          style={{
-                            background:
-                              riskColors[name] ||
-                              riskColors.UNKNOWN,
-                          }}
-                        />
-                        {name}
-                      </div>
-
-                      <strong>{formatNumber(item.value)}</strong>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-
-          <section
-            className="panel transactions-panel"
-            id="transactions-section"
+      {selectedAlert && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setSelectedAlert(null)}
+        >
+          <div
+            className="alert-modal"
+            onClick={(event) => event.stopPropagation()}
           >
-            <div className="panel-header transactions-header">
+            <div className="modal-header">
               <div>
-                <span className="section-kicker">
-                  LIVE TRANSACTION FEED
-                </span>
-                <h3>Recent transactions</h3>
+                <div className="section-label">FRAUD ALERT</div>
+                <h2>Alert #{selectedAlert.alert_id}</h2>
               </div>
 
-              <div className="transaction-tools">
-                <div className="search-box">
-                  <Search size={16} />
-                  <input
-                    value={search}
-                    onChange={(event) =>
-                      setSearch(event.target.value)
-                    }
-                    placeholder="Search transactions..."
-                  />
+              <button
+                className="modal-close"
+                onClick={() => setSelectedAlert(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
 
-                  {search && (
-                    <button onClick={() => setSearch("")}>
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
+            <div className="modal-risk">
+              <div>
+                <span className="modal-label">Risk level</span>
+                <span
+                  className={`risk-badge ${riskClass(
+                    selectedAlert.risk_level
+                  )}`}
+                >
+                  {selectedAlert.risk_level || "LOW"}
+                </span>
+              </div>
+
+              <div>
+                <span className="modal-label">Risk score</span>
+                <strong className="large-score">
+                  {selectedAlert.risk_score ?? 0}
+                  <small>/100</small>
+                </strong>
               </div>
             </div>
 
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Transaction</th>
-                    <th>Customer</th>
-                    <th>Merchant</th>
-                    <th>Amount</th>
-                    <th>Type</th>
-                    <th>Location</th>
-                    <th>Status</th>
-                    <th>Time</th>
-                  </tr>
-                </thead>
+            <div className="modal-details">
+              <div>
+                <span>Transaction</span>
+                <strong>
+                  #{selectedAlert.transaction_id ?? "—"}
+                </strong>
+              </div>
 
-                <tbody>
-                  {filteredTransactions.map((transaction) => {
-                    const status = String(
-                      transaction.transaction_status ||
-                        transaction.status ||
-                        "UNKNOWN"
-                    ).toUpperCase();
+              <div>
+                <span>Status</span>
+                <strong>{selectedAlert.status || "OPEN"}</strong>
+              </div>
 
-                    const amount = Number(
-                      transaction.amount || 0
-                    );
+              <div className="full-detail">
+                <span>Reason</span>
+                <strong>
+                  {selectedAlert.reason ||
+                    "Suspicious transaction detected"}
+                </strong>
+              </div>
 
-                    return (
-                      <tr
-                        key={
-                          transaction.transaction_id ||
-                          `${transaction.account_id}-${transaction.transaction_time}`
-                        }
-                      >
-                        <td>
-                          <div className="transaction-id">
-                            <span className="transaction-icon">
-                              <CreditCard size={15} />
-                            </span>
+              <div className="full-detail">
+                <span>Created</span>
+                <strong>
+                  {formatDate(selectedAlert.created_at)}
+                </strong>
+              </div>
+            </div>
 
-                            <div>
-                              <strong>
-                                #
-                                {transaction.transaction_id ||
-                                  "—"}
-                              </strong>
+            <div className="modal-actions">
+              <button
+                className="secondary-action"
+                disabled={updatingAlert}
+                onClick={() =>
+                  handleAlertUpdate(
+                    selectedAlert.alert_id,
+                    "FALSE_POSITIVE"
+                  )
+                }
+              >
+                Mark False Positive
+              </button>
 
-                              <span>
-                                Account{" "}
-                                {transaction.account_number ||
-                                  transaction.account_id ||
-                                  "—"}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
+              <button
+                className="primary-action"
+                disabled={updatingAlert}
+                onClick={() =>
+                  handleAlertUpdate(
+                    selectedAlert.alert_id,
+                    "CONFIRMED_FRAUD"
+                  )
+                }
+              >
+                Confirm Fraud
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-                        <td>
-                          <div className="customer-cell">
-                            <div className="customer-avatar">
-                              {String(
-                                transaction.customer_name ||
-                                  "C"
-                              )
-                                .charAt(0)
-                                .toUpperCase()}
-                            </div>
+function KpiCard({ icon, value, label, footer, tone }) {
+  return (
+    <div className={`kpi-card ${tone}`}>
+      <div className="kpi-top">
+        <div className="kpi-icon">{icon}</div>
+        <ArrowUpRight size={17} className="kpi-arrow" />
+      </div>
 
-                            <span>
-                              {transaction.customer_name ||
-                                "Unknown customer"}
-                            </span>
-                          </div>
-                        </td>
+      <strong className="kpi-value">{value}</strong>
+      <span className="kpi-label">{label}</span>
 
-                        <td>
-                          <div className="merchant-cell">
-                            <strong>
-                              {transaction.merchant_name ||
-                                transaction.merchant ||
-                                "Unknown"}
-                            </strong>
+      <div className="kpi-footer">{footer}</div>
+    </div>
+  );
+}
 
-                            <span>
-                              {transaction.merchant_category ||
-                                transaction.category ||
-                                "—"}
-                            </span>
-                          </div>
-                        </td>
+function SummaryCard({ icon, label, value }) {
+  return (
+    <div className="summary-card">
+      <div className="summary-icon">{icon}</div>
 
-                        <td>
-                          <strong className="amount">
-                            {formatCurrency(amount)}
-                          </strong>
-                        </td>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
 
-                        <td>
-                          <span className="type-pill">
-                            {transaction.transaction_type ||
-                              "—"}
-                          </span>
-                        </td>
+function PageHeader({ eyebrow, title, description }) {
+  return (
+    <section className="page-header">
+      <div className="section-label">{eyebrow}</div>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </section>
+  );
+}
 
-                        <td>
-                          <span className="location">
-                            {transaction.location || "—"}
-                          </span>
-                        </td>
+function TransactionTable({ transactions, compact = false }) {
+  if (!transactions.length) {
+    return <EmptyState text="No transactions available." />;
+  }
 
-                        <td>
-                          <span
-                            className={`status-pill ${status.toLowerCase()}`}
-                          >
-                            <span />
-                            {status}
-                          </span>
-                        </td>
+  return (
+    <div className={compact ? "transaction-table compact" : "transaction-table"}>
+      <div className="transaction-head">
+        <span>Transaction</span>
+        <span>Merchant</span>
+        <span>Amount</span>
+        <span>Location</span>
+        <span>Status</span>
+      </div>
 
-                        <td>
-                          <span className="time">
-                            {formatDate(
-                              transaction.transaction_time
-                            )}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+      {transactions.map((transaction) => {
+        const status = String(
+          transaction.status || "COMPLETED"
+        ).toLowerCase();
 
-              {filteredTransactions.length === 0 && (
-                <div className="empty-table">
-                  <Search size={26} />
-                  <strong>No transactions found</strong>
-                  <span>
-                    Try changing your search query.
-                  </span>
-                </div>
+        return (
+          <div
+            className="transaction-row"
+            key={transaction.transaction_id}
+          >
+            <div className="transaction-id">
+              <div className="transaction-icon">
+                <CircleDollarSign size={16} />
+              </div>
+
+              <div>
+                <strong>
+                  #{transaction.transaction_id}
+                </strong>
+                <span>
+                  {transaction.transaction_type || "TRANSACTION"}
+                </span>
+              </div>
+            </div>
+
+            <div className="merchant-cell">
+              <strong>
+                {transaction.merchant_name ||
+                  transaction.merchant ||
+                  "Unknown Merchant"}
+              </strong>
+              <span>
+                {transaction.merchant_category ||
+                  transaction.category ||
+                  "General"}
+              </span>
+            </div>
+
+            <strong className="amount-cell">
+              {formatCurrency(
+                transaction.amount,
+                transaction.currency || "INR"
+              )}
+            </strong>
+
+            <div className="location-cell">
+              <span>{transaction.location || "Unknown"}</span>
+              {transaction.device_identifier && (
+                <small>
+                  <Smartphone size={11} />
+                  {transaction.device_identifier}
+                </small>
               )}
             </div>
-          </section>
 
-          <section className="bottom-grid" id="alerts-section">
-            <div className="panel alerts-panel">
-              <div className="panel-header">
-                <div>
-                  <span className="section-kicker">
-                    FRAUD OPERATIONS
-                  </span>
-                  <h3>Recent alerts</h3>
-                </div>
-
-                <div className="alert-count">
-                  {formatNumber(alerts.length)} open
-                </div>
-              </div>
-
-              <div className="alerts-list">
-                {alerts.slice(0, 6).map((alert) => {
-                  const level = String(
-                    alert.risk_level ||
-                      alert.riskLevel ||
-                      "UNKNOWN"
-                  ).toUpperCase();
-
-                  return (
-                    <div className="alert-row" key={alert.alert_id}>
-                      <div
-                        className={`alert-severity ${level.toLowerCase()}`}
-                      >
-                        <AlertTriangle size={17} />
-                      </div>
-
-                      <div className="alert-info">
-                        <strong>
-                          Alert #
-                          {alert.alert_id || "—"}
-                        </strong>
-
-                        <span>
-                          {alert.reason ||
-                            "Suspicious transaction detected"}
-                        </span>
-                      </div>
-
-                      <div className="alert-score">
-                        <span>Risk</span>
-                        <strong>
-                          {alert.risk_score ?? "—"}
-                        </strong>
-                      </div>
-
-                      <ChevronRight
-                        size={17}
-                        className="alert-chevron"
-                      />
-                    </div>
-                  );
-                })}
-
-                {alerts.length === 0 && (
-                  <div className="empty-state">
-                    <ShieldCheck size={28} />
-                    <span>No active fraud alerts</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="panel protection-panel">
-              <div className="protection-glow" />
-
-              <div className="protection-icon">
-                <ShieldCheck size={28} />
-              </div>
-
-              <span className="section-kicker">
-                SMARTBANK SECURITY
-              </span>
-
-              <h3>Fraud detection engine</h3>
-
-              <p>
-                Transactions are continuously evaluated using
-                rule-based risk intelligence across amount,
-                device, location, and transaction behavior.
-              </p>
-
-              <div className="protection-metrics">
-                <div>
-                  <strong>
-                    {formatNumber(
-                      getValue(
-                        kpis,
-                        ["flagged_transactions", "flagged"],
-                        0
-                      )
-                    )}
-                  </strong>
-                  <span>Flagged</span>
-                </div>
-
-                <div>
-                  <strong>
-                    {formatNumber(
-                      getValue(
-                        kpis,
-                        ["high_risk_alerts", "high_risk"],
-                        0
-                      )
-                    )}
-                  </strong>
-                  <span>High risk</span>
-                </div>
-
-                <div>
-                  <strong>24/7</strong>
-                  <span>Monitoring</span>
-                </div>
-              </div>
-
-              <div className="protection-footer">
-                <CheckCircle2 size={16} />
-                Detection system operational
-              </div>
-            </div>
-          </section>
-
-          <footer className="dashboard-footer">
-            <div>
-              <ShieldCheck size={15} />
-              SmartBank Fraud Intelligence Platform
-            </div>
-
-            <span>
-              Oracle 21c XE • PL/SQL • ORDS • React
+            <span className={`status-badge ${status}`}>
+              {transaction.status || "COMPLETED"}
             </span>
-          </footer>
-        </section>
-      </main>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="empty-state">
+      <Database size={20} />
+      <span>{text}</span>
     </div>
   );
 }
