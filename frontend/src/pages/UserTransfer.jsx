@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Info, ShieldAlert, ShieldCheck } from "lucide-react";
-import { createTransaction, getAlerts, getDevices, getMerchants, getTransactions } from "../api";
+import { READ_ONLY, READ_ONLY_MESSAGE, createTransaction, getAlerts, getDevices, getMerchants, getTransactions } from "../api";
 import { ErrorBanner, LoadingState, PageHeader, RiskBadge, StatusBadge } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
@@ -109,7 +109,7 @@ function UserTransfer() {
     !values.deviceId && "a device",
   ].filter(Boolean);
   const canSubmit =
-    !referenceError && !error && missing.length === 0 && !amountError && !submitting;
+    !READ_ONLY && !referenceError && !error && missing.length === 0 && !amountError && !submitting;
 
   function update(event) {
     const { name, value } = event.target;
@@ -181,6 +181,13 @@ function UserTransfer() {
           by the fraud engine, but account balances are not debited or credited. No real money moves.
         </div>
       </div>
+
+      {READ_ONLY && (
+        <div className="notice warning" role="note">
+          <Info size={17} />
+          <div>{READ_ONLY_MESSAGE} You can still fill in the form to see the risk preview.</div>
+        </div>
+      )}
 
       {referenceError && (
         <ErrorBanner
@@ -291,7 +298,7 @@ function UserTransfer() {
 
               <ErrorBanner error={submitError} />
 
-              {!canSubmit && !submitting && missing.length > 0 && (
+              {!READ_ONLY && !canSubmit && !submitting && missing.length > 0 && (
                 <p className="field-hint" role="status">Select {missing.join(", ")} to continue.</p>
               )}
 

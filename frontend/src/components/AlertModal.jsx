@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Search, ShieldOff, X, XCircle } from "lucide-react";
-import { getAlertById, updateAlert } from "../api";
+import { READ_ONLY, READ_ONLY_MESSAGE, getAlertById, updateAlert } from "../api";
 import { formatCurrency, formatDate } from "../utils/format";
 import { ErrorBanner, RiskBadge, StatusBadge } from "./ui";
 
@@ -184,13 +184,15 @@ function AlertModal({ alert, onClose, onUpdated }) {
 
         <ErrorBanner error={error} />
 
+        {READ_ONLY && <p className="field-hint" role="note">{READ_ONLY_MESSAGE}</p>}
+
         <div className="modal-actions wrap">
           {ACTIONS.map(({ status, label, icon: Icon, className }) => (
             <button
               type="button"
               key={status}
               className={className}
-              disabled={Boolean(updating) || currentStatus === status}
+              disabled={READ_ONLY || Boolean(updating) || currentStatus === status}
               onClick={() => changeStatus(status)}
               title={currentStatus === status ? `Alert is already ${status}` : undefined}
             >

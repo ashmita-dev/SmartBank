@@ -15,7 +15,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { API_BASE_URL, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
+import { API_BASE_URL, API_CONFIGURED, READ_ONLY, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { loadCustomerProfile } from "../utils/customerData";
 
@@ -58,7 +58,10 @@ function AppLayout() {
     () =>
       probeEndpoints(REQUIRED_ENDPOINTS[role], { customerId: user?.customerId }).then((results) => {
         const failed = results.filter((r) => !r.ok);
-        const unreachable = failed.length === results.length && failed.every((r) => r.status === 0);
+        // No answer at all, or a gateway/ORDS reporting the backend down
+        // (502/503/504/571) for every endpoint, means offline, not degraded.
+        const unreachable =
+          failed.length === results.length && failed.every((r) => [0, 502, 503, 504, 571].includes(r.status));
         return {
           status: failed.length === 0 ? "online" : unreachable ? "offline" : "degraded",
           failed,
@@ -193,16 +196,22 @@ function AppLayout() {
             type="button"
             className={`system-status ${apiStatus}`}
             onClick={checkApi}
-            title={`ORDS endpoint: ${API_BASE_URL}${failedNames ? ` · Unavailable: ${failedNames}` : ""} · click to re-check`}
+            title={`API: ${API_BASE_URL || "not configured"}${failedNames ? ` · Unavailable: ${failedNames}` : ""} · click to re-check`}
           >
             <span className="status-dot" />
             <div>
               <strong>{statusLabel}</strong>
               <span>
                 {apiStatus === "offline"
-                  ? "Start Oracle XE + ORDS"
+                  ? !API_CONFIGURED
+                    ? "No backend configured"
+                    : READ_ONLY
+                    ? "Host computer is offline"
+                    : "Start Oracle XE + ORDS"
                   : apiStatus === "degraded"
                   ? `Unavailable: ${failedNames}`
+                  : READ_ONLY
+                  ? "Oracle 21c XE · read-only demo"
                   : "Oracle 21c XE · ORDS"}
               </span>
             </div>

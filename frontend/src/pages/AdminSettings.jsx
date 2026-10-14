@@ -119,7 +119,7 @@ function AdminSettings() {
           </div>
 
           <div className="diag-summary">
-            <div><span>API base URL</span><code>{API_BASE_URL}</code></div>
+            <div><span>API base URL</span><code>{API_BASE_URL || "Not configured in this build"}</code></div>
             <div>
               <span>Last tested</span>
               <strong>{lastRun ? formatDate(lastRun) : "Not yet in this session"}</strong>

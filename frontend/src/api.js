@@ -1,10 +1,26 @@
-// Base URL of the ORDS REST module. Override with VITE_API_BASE_URL in
-// frontend/.env.local. Never put credentials in VITE_ variables: they are
+// Base URL of the REST API. Set VITE_API_BASE_URL at build time (see
+// frontend/.env.example). Never put credentials in VITE_ variables: they are
 // bundled into the public JavaScript.
+//
+// Without it, the local ORDS URL is used only when the page itself is served
+// from this computer (npm run dev / preview). A hosted copy never falls back
+// to localhost; it reports that no backend is configured instead.
+const LOCAL_ORDS_URL = "http://localhost:8080/ords/smartbank/sb/api";
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
+const servedLocally = typeof window !== "undefined" && LOCAL_HOSTS.includes(window.location.hostname);
+
 export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:8080/ords/smartbank/sb/api"
+  import.meta.env.VITE_API_BASE_URL || (servedLocally ? LOCAL_ORDS_URL : "")
 ).replace(/\/+$/, "");
+
+export const API_CONFIGURED = Boolean(API_BASE_URL);
+
+// Public read-only demo (VITE_READ_ONLY=true): the gateway refuses writes, and
+// the UI disables the transfer and alert-status actions up front.
+export const READ_ONLY = import.meta.env.VITE_READ_ONLY === "true";
+
+export const READ_ONLY_MESSAGE =
+  "This public demo is read-only. Creating transactions and changing alert status work only in the local installation, where the request goes straight to Oracle.";
 
 // ORDS paginates collection feeds (25-50 rows by default). Ask for enough
 // rows that client-side search and filtering see the whole demo dataset.
@@ -75,6 +91,17 @@ function errorMessage(body, status, endpoint, method) {
 async function request(endpoint, options = {}) {
   const { signal, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const method = fetchOptions.method || "GET";
+
+  if (!API_CONFIGURED) {
+    throw new ApiError(
+      "This hosted copy of SmartBank is not connected to a backend (VITE_API_BASE_URL was not set when it was built). See the README for how to run it with the Oracle database.",
+      0
+    );
+  }
+
+  if (READ_ONLY && method !== "GET") {
+    throw new ApiError(READ_ONLY_MESSAGE, 405);
+  }
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
