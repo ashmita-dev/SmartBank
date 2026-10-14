@@ -1,6 +1,8 @@
 # SmartBank — Setup Guide
 
-This guide covers Oracle XE, the database scripts, ORDS and the React frontend.
+This guide covers the **local development** setup: Oracle XE, the database scripts, ORDS
+and the React frontend. For the public cloud deployment (Oracle Autonomous Database),
+see [DEPLOYMENT.md](DEPLOYMENT.md).
 Replace `<password>` with your own values and never commit them.
 
 ## 1. Prerequisites
@@ -57,7 +59,14 @@ ALTER SESSION SET CONTAINER = XEPDB1;
 CREATE USER smartbank_user IDENTIFIED BY "<password>" QUOTA UNLIMITED ON users;
 GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE SEQUENCE,
       CREATE PROCEDURE, CREATE TRIGGER TO smartbank_user;
+GRANT EXECUTE ON SYS.DBMS_CRYPTO TO smartbank_user;   -- password hashing, session tokens
 ```
+
+**Fresh schema, one file:** `node scripts/build-cloud-install.mjs` generates
+`deploy/oci/01_install_smartbank.sql`, which runs every script below in the right order
+(plus `14`, `15` and `ords_endpoints.sql`). That is the file used for the cloud install, and it
+works on any empty schema. Run it as `smartbank_user` with SQLcl, SQL*Plus or SQL Developer.
+CI fails if it is out of date.
 
 Then connect as `smartbank_user` (for example
 `sql smartbank_user@localhost:1521/XEPDB1`) and run the scripts from the `database/` folder:
@@ -70,7 +79,10 @@ Then connect as `smartbank_user` (for example
 | 4 | `05_functions.sql`, `06_procedures.sql`, `07_triggers.sql`, `08_cursor.sql`, `09_package.sql` | Fraud engine |
 | 5 | `03_seed_data.sql`, **`BANK_TRANSACTION` section** | Replayed through the trigger, so alerts are generated |
 | 6 | `10_views.sql`, `11_indexes.sql` | Reporting views and indexes |
-| 7 | `04_verification_queries.sql` | Optional checks |
+| 7 | `14_demo_customer_profile.sql` | Names demo customer #1 |
+| 8 | `15_api_security.sql` | `API_USER`, `API_SESSION`, `API_EVENT`, `PKG_SMARTBANK_API` (sign-in, roles, validation, JSON) |
+| 9 | `ords_endpoints.sql` (after enabling ORDS, §4) | REST module |
+| 10 | `04_verification_queries.sql` | Optional checks |
 
 > **Already have the database?** The live `SMARTBANK_USER` schema on the development
 > machine already contains every object. **Do not re-run 01–03 against it**: those scripts
@@ -91,24 +103,25 @@ END;
 /
 ```
 
-Publish or refresh the API by running **`database/ords_endpoints.sql` as `smartbank_user`**.
-The script redefines the whole `smartbank.api` module, so it is safe to run repeatedly.
-It publishes 13 handlers, including `GET /accounts`, `/merchants`, `/devices` and
-`/customers/:id` and the updated `PUT /alerts/:id` and `POST /transactions`, used by the
-current frontend. The SELECTs of the new GET handlers were run read-only against the live
-schema (20 accounts with 20 distinct IDs, so no duplicate rows; customer 1 has 2 accounts),
-and both PL/SQL handlers compile (`DBMS_SQL.PARSE`, nothing executed).
-
-The easiest way (with ORDS running) is:
+Publish or refresh the API with (ORDS running):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
 ```
 
-It asks for the `SMARTBANK_USER` password in a hidden prompt, passes it to `sqlplus` on
-standard input only (never on the command line or in a file), runs `ords_endpoints.sql` and
-`14_demo_customer_profile.sql` (add `-SkipProfile` to leave customer #1's name unchanged),
-then calls all 11 read endpoints.
+It:
+1. grants `EXECUTE ON SYS.DBMS_CRYPTO` to `SMARTBANK_USER` (as SYSDBA via operating-system
+   authentication; skip with `-SkipGrant`);
+2. asks for the `SMARTBANK_USER` password and the two demo-login passwords in hidden prompts
+   (press Enter to keep a demo password unchanged) and passes them to `sqlplus` on standard
+   input only (never on the command line or in a file);
+3. runs `15_api_security.sql`, `ords_endpoints.sql` and `14_demo_customer_profile.sql` (add
+   `-SkipProfile` to leave customer #1's name unchanged), then sets the demo passwords
+   (only salted PBKDF2 hashes are stored);
+4. checks that `GET /health` answers and that `GET /transactions` requires sign-in (401).
+
+Every handler now calls `PKG_SMARTBANK_API`. Only `GET /health` and `POST /auth/login` work
+without a session token. The 12 core tables, triggers and fraud-engine code are not changed.
 
 Start ORDS (keep this terminal open), or let `scripts\start-backend.ps1` do it:
 
@@ -119,16 +132,17 @@ C:\ords\bin\ords.exe --config C:\ords-config serve
 Check it:
 
 ```powershell
-curl http://localhost:8080/ords/smartbank/sb/api/kpis
+curl http://localhost:8080/ords/smartbank/sb/api/health
 ```
 
-### Verified state (14 Oct 2026)
+### Verified state of the laptop database (14 Oct 2026, before the security layer)
 
 * The listener service runs on `localhost:1521` and `xepdb1` is registered.
 * The ORDS `smartbank` pool is VALID (`ORDS_PUBLIC_USER` password stored in the pool wallet).
 * `http://localhost:8080/ords/smartbank/sb/api/kpis` returns live data.
-* `scripts\register-endpoints.ps1` has been run: all 13 handlers are published, including
-  `/accounts`, `/merchants`, `/devices` and `/customers/:id`, and customer #1 is Ashmita Mazumdar.
+* The **previous, unauthenticated** module (13 handlers) is published, and customer #1 is
+  Ashmita Mazumdar. **The new security layer has not been installed on the laptop yet.** Run
+  `scripts\register-endpoints.ps1` once to install it. After that, the current frontend can sign in locally.
 * Live schema objects checked with a read-only `DBA_OBJECTS` query: 12 tables, 4 views,
   `CALCULATE_RISK`, `CLASSIFY_RISK`, `DETECT_FRAUD`, `GENERATE_ALERT`, `REVIEW_HIGH_RISK_ALERTS`,
   both triggers and `PKG_FRAUD_DETECTION` (spec and body), all VALID.
@@ -156,50 +170,39 @@ npm run preview   # serve the build on http://localhost:4173
 In the analyst console, **System & Settings → Test all endpoints** checks every
 read-only endpoint against the live API.
 
-## 6. Public read-only demo (optional)
+## 6. Public deployment
 
-A hosted frontend cannot use `localhost`, and the ORDS module has no authentication, so ORDS
-and Oracle are never published. Instead:
+The public site uses Oracle Autonomous Database (Always Free) instead of the laptop. Steps,
+security model and status: [DEPLOYMENT.md](DEPLOYMENT.md). The earlier read-only gateway and
+Cloudflare quick tunnel (`gateway/server.mjs`, `scripts/start-public-demo.ps1`) were removed,
+because they depended on the laptop and could not support sign-in or transfers.
 
-| Piece | File | Role |
-|---|---|---|
-| Static frontend | `.github/workflows/deploy-frontend.yml` | Builds with `BASE_PATH=/SmartBank/`, `VITE_API_BASE_URL=<gateway URL>`, `VITE_READ_ONLY=true`; copies `index.html` to `404.html` so deep links and refreshes work; fails on localhost/LAN/plain-http/port-8080 URLs; scans the bundle for credentials |
-| Read-only gateway | `gateway/server.mjs` (Node 18+, no dependencies) | Listens on `127.0.0.1:8787` only; forwards the 10 GET endpoints; rejects writes (`405`), unknown paths (`404`), bad parameters; `limit` ≤ 1000; 240 requests/min per client; CORS only for `ALLOWED_ORIGINS` (default `https://ashmita-dev.github.io`) |
-| HTTPS tunnel | `scripts/start-public-demo.ps1` | Starts the gateway and a Cloudflare quick tunnel (`cloudflared`, free, no account) and, with `-Deploy`, runs the workflow with the tunnel address |
+### Tests
 
-**One-time:** enable **Settings → Pages → Source: GitHub Actions**, and install
-`winget install --id Cloudflare.cloudflared`.
-
-**Each session:** start the backend, then
-`powershell -ExecutionPolicy Bypass -File scripts\start-public-demo.ps1 -Deploy` and keep the
-window open. The site is `https://ashmita-dev.github.io/SmartBank/`. Quick-tunnel addresses
-change on every start; for a stable address use a named Cloudflare tunnel on your own domain
-(needs a Cloudflare account) and run the workflow once with that URL.
-
-**What visitors get:** both portals with live Oracle data; transfers and alert actions are
-disabled with an explanation. If the laptop is off, pages say the backend is offline. A build
-without `VITE_API_BASE_URL` says it is not connected to a backend; it never falls back to
-`localhost` or to sample data.
-
-**CORS:** the browser talks only to the gateway, which answers `Access-Control-Allow-Origin`
-for the configured origin(s). ORDS's own CORS setting does not matter because browsers never
-reach ORDS directly. For local development the app calls ORDS directly from `localhost`.
-
-**Not suitable for a public URL:** tunnelling ORDS (port 8080) itself. Anyone could create
-transactions and change alerts. Full public write access would need ORDS OAuth2 (or another
-identity provider) and server-side role checks first.
+```powershell
+cd frontend
+npm run lint
+npm test                    # 23 unit/component tests (Vitest, no backend needed)
+npm run build
+# Against a running API (passwords from environment variables, see DEPLOYMENT.md):
+node ..\scripts\api-smoke-test.mjs           # 42 read-only API checks
+node ..\scripts\api-smoke-test.mjs --write   # + documented low/high-risk transaction test
+npm run test:e2e                              # real Chrome, needs E2E_BASE_URL
+```
 
 ## 7. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
 | Red **API offline** badge, "Cannot reach the SmartBank API" | ORDS not running, or the listener is down. Run `scripts\start-backend.ps1`. |
+| Login says "The POST /auth/login endpoint is not published" | The security layer is not installed in this database yet. Run `scripts\register-endpoints.ps1`. |
+| "Invalid email or password" for the demo logins | Demo passwords are set per database. Re-run `register-endpoints.ps1` and type new ones. |
+| "Your session has ended" | Sessions last 8 hours, and end on sign-out or when the password is reset. Sign in again. |
+| `PLS-00201: identifier 'DBMS_CRYPTO' must be declared` | The grant in §3 is missing. |
 | `lsnrctl start`: `Unable to OpenSCManager: err=5` | Not an administrator terminal. See §2. |
 | ORDS log: `The pool named: \|smartbank\|lo\| is invalid ... database password secret in the wallet ... is missing`; requests return HTTP 571 / ORA-01005 | The pool wallet has no password for `ORDS_PUBLIC_USER`. Close ORDS and run `scripts\repair-ords-pool.ps1` (hidden prompt), or add `-ResetPassword` if the password is unknown. `start-backend.ps1` checks for this before starting ORDS. |
 | ORDS `DatabaseConnectionError` / ORA-12518 | Listener started as a normal user instead of as the Windows service. Stop it and start the service (§2). |
 | ORA-12514 (service XEPDB1 not known) | Wait about 60 s after starting the listener, or check that `LOCAL_LISTENER` points at `localhost`. |
-| My Accounts says balances are unavailable; transfer form disabled | `GET /accounts`, `/merchants`, `/devices` are not published yet. Re-run `ords_endpoints.sql`. |
-| Alert action says "The API saved status INVESTIGATING instead of …" | The old `PUT /alerts/:id` handler is still deployed. Re-run `ords_endpoints.sql`. |
-| Browser CORS error | Open the app via `localhost`, not a LAN IP, or adjust ORDS allowed origins. |
+| Browser CORS error | Open the app via `localhost:5173` or `localhost:4173`, not a LAN IP. Allowed origins are listed at the top of `ords_endpoints.sql`. |
 | "did not answer within 15 s" | ORDS accepted the connection but the database did not reply (listener or pool problem). Restart with `scripts\start-backend.ps1`. |
 | "returned an unexpected response format" | Something other than ORDS JSON answered (wrong `VITE_API_BASE_URL`, proxy page or an old handler). Check the URL in System & Settings. |

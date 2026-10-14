@@ -1,6 +1,70 @@
 # SmartBank — Project Status
 
-_Last updated: 14 Oct 2026_
+_Last updated: 14 Oct 2026 (eighth pass)_
+
+## Current status at a glance
+
+| Question | Answer (verified 14 Oct 2026) |
+|---|---|
+| Public frontend URL | `https://ashmita-dev.github.io/SmartBank/`. **Loads (HTTP 200).** It still serves the earlier read-only build. |
+| Is the Oracle backend independent of the laptop? | **Not yet.** The permanent backend (Oracle Autonomous Database, Always Free) is ready to install but needs the owner's Oracle Cloud account. See [DEPLOYMENT.md](DEPLOYMENT.md). |
+| Does public transaction submission work? | **No, not publicly yet.** It works end to end in the rehearsal (below). |
+| Which public API exists today? | Only a temporary Cloudflare quick tunnel to the laptop's read-only gateway, which stops when the laptop does. It is being retired. |
+| Was a test transaction inserted and scored by the real fraud engine? | **Yes, in the rehearsal database:** the same scripts and PL/SQL on Oracle 23ai Free + ORDS 26.2 (LOW: score 0, no alert; HIGH: score 95, FLAGGED, 1 alert). Not on the laptop database, and not on the cloud database. |
+| What is local-only? | The laptop XE database (development) and the current tunnel. |
+| Cloud resources required | 1 Oracle Cloud account (free tier), 1 Always Free Autonomous Database, 1 GitHub repository variable. **Cost: $0.** |
+| Manual steps remaining | DEPLOYMENT.md, *One-time setup*, steps 1–7 (owner only: account, passwords). Then the verification run. |
+
+## Eighth pass: production architecture, server-side security, rehearsal (14 Oct 2026)
+
+**Audit findings**
+* Pages is enabled and serving; the last deployment (manual run, 14:25 UTC) was built against
+  `https://jay-wherever-knives-interventions.trycloudflare.com/api`, which answered while the laptop was on.
+* The laptop's ORDS module had no authentication; login was checked in the browser with
+  passwords in the JavaScript bundle; customer isolation was a frontend filter.
+* `03_seed_data.sql` could not build a fresh schema: 158 `INSERT … ; -- id n` lines are never
+  executed by SQL*Plus, because the `;` is not the last character on the line. Fixed (`/* id n */;`).
+* ORDS returned `transaction_time` with a `Z` (UTC) suffix for IST wall-clock values, so new
+  transactions showed 5½ hours late in the browser. Fixed: the API now converts explicitly to UTC.
+
+**Built**
+* `database/15_api_security.sql`: `API_USER` (salted PBKDF2-HMAC-SHA256), `API_SESSION`
+  (SHA-256 of random 256-bit tokens, 8-hour expiry), `API_EVENT` (audit and rate limits), and
+  `PKG_SMARTBANK_API`, which every REST handler calls: session check, CUSTOMER / ANALYST role,
+  customer scoping in SQL, input validation, rate limits and JSON errors. Core tables and fraud engine unchanged.
+* `database/ords_endpoints.sql` rewritten: 18 one-line handlers; the token comes from the
+  `X-Session-Token` header; CORS is limited to GitHub Pages and localhost.
+* `POST /transactions` validates, checks account ownership, inserts once, lets
+  `TRG_FRAUD_MONITOR → DETECT_FRAUD` run (never called again by the API), and returns the
+  committed ID, status, score, level, reasons and alert. LOW risk stores no alert, so its score
+  comes from `CALCULATE_RISK` (read-only).
+* `deploy/oci/`: `00_admin_setup.sql`, a generated `01_install_smartbank.sql` (via
+  `scripts/build-cloud-install.mjs`, checked in CI), and `02_demo_logins.sql`.
+* Frontend: server-side sign-in, token on every request, session kept across refresh and
+  re-checked with the server, automatic sign-out on 401, no passwords in the bundle, transfer
+  result shows the database's score, level, reasons and alert, and database labels match the build.
+* CI/CD: tests on every push; Pages deploys only when `SMARTBANK_API_URL` is set and `/health`
+  answers; a keep-awake workflow. Removed the laptop gateway and tunnel script.
+* Tests: Vitest (23), `scripts/api-smoke-test.mjs` (42 read-only + 20 write checks),
+  `frontend/e2e/run-e2e.mjs` (real Chrome, 20 checks).
+
+**Tests run (all actually executed)**
+
+| Test | Environment | Result |
+|---|---|---|
+| `npm run lint` | local | **Pass** |
+| `npm test` (Vitest) | local, fake API | **23/23** |
+| `npm run build` (also `/SmartBank/` base) | local | **Pass** |
+| `npm audit` | local | **0 vulnerabilities** (one build-tool advisory fixed with `npm audit fix`) |
+| Clean install of `00` → `01` → `02` on an empty schema | Rehearsal: Docker `gvenzl/oracle-free:23-slim-faststart`, ORDS 26.2.3 on 127.0.0.1:8181 | **Exit 0, no errors**; all objects VALID; 101 transactions → 84 alerts (3 HIGH = 3 FLAGGED) |
+| `api-smoke-test.mjs --write` | Rehearsal | **62/62**: health; 401 without or with a forged token; wrong password; 403 for wrong role; customer scoping (11 own rows, other `customer_id` ignored); CORS allowed for Pages, refused for an unknown origin; 9 invalid inputs rejected with nothing inserted; LOW transfer (score 0 = predicted, no alert, COMPLETED); HIGH transfer (score 95 = predicted, FLAGGED, exactly 1 alert, reasons match, assigned to Kavita Rao); analyst moves that alert to INVESTIGATING and the customer sees it; signed-out token refused |
+| `npm run test:e2e` (real Chrome) | Rehearsal + Pages-style build at `/SmartBank/` | **20/20**: deep-link redirect, server rejects a wrong password, both logins, live data, refresh keeps the session, transfer via the UI → #223, score 100, alert, FLAGGED, listed after refresh, analyst finds and opens the alert, role redirect, no console errors |
+| Same suites against the cloud deployment | — | **Not run**: the cloud database does not exist yet |
+| Laptop XE database | — | **Not changed in this pass** (no writes, no installs). The new frontend needs `register-endpoints.ps1` run there before it can sign in locally. |
+
+The 62-check API run and the 20-check browser run were repeated after a final clean reinstall from the committed scripts, with the same results.
+
+## History of earlier passes
 
 ## Completed
 
@@ -229,29 +293,18 @@ tools sent it (all recorded zero writes; the gateway logged none); it appears to
 through the local app. It confirms the live trigger → alert → FLAGGED path. IDs jumped from 201/81 to
 221/101 because of Oracle identity caching, which is normal.
 
-## Remaining work (needs you)
+## Remaining work (needs the owner)
 
-1. ~~Run `scripts\register-endpoints.ps1`~~ **Done**: all 13 handlers are live and customer #1
-   is Ashmita Mazumdar.
-2. Optional live write test (permanent: cleanup would require deleting rows, which is not done):
-   as customer #1, transfer ₹1,50,000 to *QuickCash Loans* from AC1000001, location `Lagos`, device
-   `DEV-WIN-0003`. Expected: FLAGGED, HIGH alert, score 80. Run only with explicit approval.
+1. Create the Oracle Cloud Always Free account and database, run the three `deploy/oci/` scripts,
+   and set the `SMARTBANK_API_URL` repository variable: [DEPLOYMENT.md](DEPLOYMENT.md), steps 1–7.
+2. Run the verification (`api-smoke-test.mjs --write`, `npm run test:e2e`) against the public
+   URL, then switch the README Live Demo notice to "verified".
+3. Optional, local: run `scripts\register-endpoints.ps1` so the laptop database also has the
+   security layer. This replaces the laptop's unauthenticated module, so the old read-only
+   tunnel site will stop working; that is intended once the cloud backend is live.
 
 ## Known limitations
-* Demo authentication runs in the browser; roles are enforced only in the UI. The ORDS module has no OAuth.
-* Transfers record and screen a transaction but do not move balances.
-* The risk preview on the transfer form is a client-side hint. `CALCULATE_RISK` is authoritative.
-* Customer isolation is a query filter in the frontend; ORDS would return any customer's rows if asked.
-* Re-running `03_seed_data.sql` regenerates alerts through the trigger, so statuses return to OPEN.
-
-## Deployment status
-**Not public yet; no URL exists.** Everything that can be prepared without your approval is done
-and tested locally (see the seventh pass). Remaining steps, all yours:
-1. Enable GitHub Pages (Settings → Pages → Source: GitHub Actions). This is a repository setting.
-2. Install `cloudflared` (`winget install --id Cloudflare.cloudflared`).
-3. Restart ORDS once (`scripts\start-backend.ps1`) so it binds to localhost only.
-4. Run `scripts\start-public-demo.ps1 -Deploy` and keep the window open. This exposes the
-   read-only gateway (not ORDS) to the internet for as long as it runs.
-
-Limits: the public site is read-only, shows the synthetic demo data (including the demo customer
-name), and is online only while the laptop, Oracle, ORDS and the tunnel run.
+* Shared demo logins (see README). Transfers do not move balances. Rule-based scoring.
+* The risk preview on the transfer form is a client-side hint; `CALCULATE_RISK` is authoritative.
+* Always Free: about 3–6 simultaneous HTTP users, no backups; stops after 7 idle days (keep-awake workflow).
+* Re-running the seed regenerates alerts through the trigger, so statuses return to OPEN.
