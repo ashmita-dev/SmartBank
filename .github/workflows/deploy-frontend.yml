@@ -1,13 +1,13 @@
 # Tests the project on every push and pull request, and publishes the React
-# frontend to GitHub Pages from main.
+# frontend to GitHub Pages from main, in one of two clearly separated modes:
 #
-# The public API address comes from the repository VARIABLE (not a secret, it
-# is public anyway) SMARTBANK_API_URL, e.g.
-#   https://<id>-smartbank.adb.<region>.oraclecloudapps.com/ords/sb/api
-# Settings -> Secrets and variables -> Actions -> Variables -> New variable.
-# Until it is set, the site is NOT redeployed, so an existing deployment is
-# never replaced by a build without a backend. A manual run may pass
-# api_base_url to override it.
+#   REAL ORACLE MODE  when the repository VARIABLE SMARTBANK_API_URL (public,
+#                     not a secret) points at a hosted SmartBank ORDS API and
+#                     its /health endpoint answers. Transactions go to Oracle.
+#   DEMO MODE         otherwise. The site runs an in-browser simulation that is
+#                     labelled as simulated on every page; nothing reaches Oracle.
+#
+# A manual run may pass api_base_url to override the variable.
 #
 # Nothing secret is used here: database and demo passwords live only in the
 # Oracle database, and every VITE_ value ends up in public JavaScript.
@@ -49,6 +49,8 @@ jobs:
       - run: npm test
       - name: Cloud install script matches database/ sources
         run: node ../scripts/build-cloud-install.mjs --check
+      - name: Demo-mode seed data matches database/03_seed_data.sql
+        run: node ../scripts/build-demo-data.mjs --check
 
   build:
     needs: test
@@ -75,8 +77,9 @@ jobs:
         run: |
           API_URL="${INPUT_URL:-$VAR_URL}"
           if [ -z "$API_URL" ]; then
-            echo "::warning::SMARTBANK_API_URL is not set, so GitHub Pages was left unchanged. See docs/DEPLOYMENT.md."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No hosted Oracle API configured (SMARTBANK_API_URL): publishing DEMO MODE (simulated, labelled)."
+            echo "mode=demo" >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$API_URL" in
@@ -87,10 +90,11 @@ jobs:
             echo "::error::The API URL points at a private address or a temporary tunnel."; exit 1
           fi
           echo "api_url=${API_URL%/}" >> "$GITHUB_OUTPUT"
+          echo "mode=oracle" >> "$GITHUB_OUTPUT"
           echo "deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Check the API is reachable before publishing
-        if: steps.url.outputs.deploy == 'true'
+        if: steps.url.outputs.mode == 'oracle'
         run: |
           code=$(curl -s -o health.json -w '%{http_code}' --max-time 30 "${{ steps.url.outputs.api_url }}/health" || true)
           echo "GET /health -> HTTP $code"; cat health.json || true; echo
@@ -105,10 +109,14 @@ jobs:
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
           VITE_API_BASE_URL: ${{ steps.url.outputs.api_url }}
+          VITE_DEMO_MODE: ${{ steps.url.outputs.mode == 'demo' && 'true' || 'false' }}
 
-      - name: Check bundle for secrets
+      - name: Check bundle for secrets and stale tunnel URLs
         if: steps.url.outputs.deploy == 'true'
         run: |
+          if grep -Rq 'trycloudflare\.com' dist; then
+            echo "::error::The bundle points at a temporary tunnel address"; exit 1
+          fi
           if grep -RiqE 'db\.password|ORDS_PUBLIC_USER|SMARTBANK_USER/|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|"password":"[^"]' dist; then
             echo "::error::Possible credential in the build output"; exit 1
           fi
