@@ -121,9 +121,16 @@ jobs:
             echo "::error::Possible credential in the build output"; exit 1
           fi
 
-      # Single-page app: serve index.html for deep links such as /SmartBank/admin.
+      # Single-page app on a static host: give every app route its own copy of
+      # index.html so direct links and refreshes return HTTP 200, and keep
+      # 404.html as the fallback for any other path.
       - if: steps.url.outputs.deploy == 'true'
-        run: cp dist/index.html dist/404.html
+        run: |
+          for route in login user user/accounts user/transactions user/transfer user/settings \
+                       admin admin/transactions admin/alerts admin/analysts admin/settings; do
+            mkdir -p "dist/$route" && cp dist/index.html "dist/$route/index.html"
+          done
+          cp dist/index.html dist/404.html
       - if: steps.url.outputs.deploy == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
