@@ -107,6 +107,10 @@ BEGIN
                    l_amount NUMBER;
                    l_transaction_type VARCHAR2(30);
                    l_location VARCHAR2(200);
+                   l_txn_id NUMBER;
+                   l_txn_status VARCHAR2(15);
+                   l_out JSON_OBJECT_T := JSON_OBJECT_T();
+                   l_alert JSON_OBJECT_T;
                  BEGIN
 
                    l_body := JSON_OBJECT_T.parse(:body_text);
@@ -161,16 +165,52 @@ BEGIN
                      SYSTIMESTAMP,
                      l_location,
                      ''COMPLETED''
-                   );
+                   )
+                   RETURNING transaction_id INTO l_txn_id;
+
+                   -- TRG_FRAUD_MONITOR has already run DETECT_FRAUD for this
+                   -- row by the time the INSERT statement completes.
+                   SELECT status INTO l_txn_status
+                   FROM bank_transaction
+                   WHERE transaction_id = l_txn_id;
+
+                   l_out.put(''transaction_id'', l_txn_id);
+                   l_out.put(''transaction_status'', l_txn_status);
+
+                   FOR a IN (SELECT alert_id, risk_score, risk_level, reason, status
+                             FROM fraud_alert
+                             WHERE transaction_id = l_txn_id) LOOP
+                     l_alert := JSON_OBJECT_T();
+                     l_alert.put(''alert_id'', a.alert_id);
+                     l_alert.put(''risk_score'', a.risk_score);
+                     l_alert.put(''risk_level'', a.risk_level);
+                     l_alert.put(''reason'', a.reason);
+                     l_alert.put(''status'', a.status);
+                     l_out.put(''alert'', l_alert);
+                   END LOOP;
 
                    COMMIT;
 
-                   :status_code := 201;
+                   OWA_UTIL.MIME_HEADER(''application/json'', FALSE);
+                   OWA_UTIL.STATUS_LINE(201, ''Created'', FALSE);
+                   OWA_UTIL.HTTP_HEADER_CLOSE;
+                   HTP.P(l_out.to_string);
 
                  EXCEPTION
                    WHEN OTHERS THEN
                      ROLLBACK;
-                     RAISE;
+                     -- Validation and trigger errors (ORA-20000..20999) are
+                     -- returned as 400 JSON so the client can display them.
+                     IF SQLCODE BETWEEN -20999 AND -20000 THEN
+                       l_out := JSON_OBJECT_T();
+                       l_out.put(''error'', REGEXP_REPLACE(SQLERRM, ''^ORA-[0-9]+: '', ''''));
+                       OWA_UTIL.MIME_HEADER(''application/json'', FALSE);
+                       OWA_UTIL.STATUS_LINE(400, ''Bad Request'', FALSE);
+                       OWA_UTIL.HTTP_HEADER_CLOSE;
+                       HTP.P(l_out.to_string);
+                     ELSE
+                       RAISE;
+                     END IF;
                  END;',
     p_mimes_allowed => 'application/json'
   );
@@ -230,10 +270,28 @@ BEGIN
     p_pattern => 'alerts/:id',
     p_method => 'PUT',
     p_source_type => ORDS.source_type_plsql,
-    p_source => 'BEGIN
+    p_source => 'DECLARE
+                   l_body   CLOB := :body_text;
+                   l_id     NUMBER := TO_NUMBER(:id);
+                   l_status VARCHAR2(20);
+                   l_out    JSON_OBJECT_T := JSON_OBJECT_T();
+                   l_code   PLS_INTEGER;
+                 BEGIN
+                   IF l_body IS NOT NULL AND DBMS_LOB.GETLENGTH(l_body) > 0 THEN
+                     l_status := UPPER(JSON_OBJECT_T.parse(l_body).get_string(''status''));
+                   END IF;
+
+                   -- No body keeps the original behaviour: move to INVESTIGATING.
+                   l_status := NVL(l_status, ''INVESTIGATING'');
+
+                   IF l_status NOT IN (''OPEN'', ''INVESTIGATING'', ''CONFIRMED_FRAUD'',
+                                       ''FALSE_POSITIVE'', ''CLOSED'') THEN
+                     RAISE_APPLICATION_ERROR(-20041, ''Invalid alert status: '' || l_status);
+                   END IF;
+
                    UPDATE fraud_alert
-                   SET status = ''INVESTIGATING''
-                   WHERE alert_id = :id;
+                   SET status = l_status
+                   WHERE alert_id = l_id;
 
                    IF SQL%ROWCOUNT = 0 THEN
                      RAISE_APPLICATION_ERROR(-20040, ''Fraud alert not found'');
@@ -241,11 +299,37 @@ BEGIN
 
                    COMMIT;
 
-                   OPEN :result FOR
-                     SELECT alert_id, transaction_id, risk_score, risk_level,
-                            status, reason, created_at
-                     FROM fraud_alert
-                     WHERE alert_id = :id;
+                   FOR a IN (SELECT alert_id, transaction_id, risk_score, risk_level,
+                                    status, reason
+                             FROM fraud_alert
+                             WHERE alert_id = l_id) LOOP
+                     l_out.put(''alert_id'', a.alert_id);
+                     l_out.put(''transaction_id'', a.transaction_id);
+                     l_out.put(''risk_score'', a.risk_score);
+                     l_out.put(''risk_level'', a.risk_level);
+                     l_out.put(''status'', a.status);
+                     l_out.put(''reason'', a.reason);
+                   END LOOP;
+
+                   OWA_UTIL.MIME_HEADER(''application/json'', FALSE);
+                   OWA_UTIL.STATUS_LINE(200, ''OK'', FALSE);
+                   OWA_UTIL.HTTP_HEADER_CLOSE;
+                   HTP.P(l_out.to_string);
+
+                 EXCEPTION
+                   WHEN OTHERS THEN
+                     ROLLBACK;
+                     IF SQLCODE BETWEEN -20999 AND -20000 THEN
+                       l_code := CASE WHEN SQLCODE = -20040 THEN 404 ELSE 400 END;
+                       l_out := JSON_OBJECT_T();
+                       l_out.put(''error'', REGEXP_REPLACE(SQLERRM, ''^ORA-[0-9]+: '', ''''));
+                       OWA_UTIL.MIME_HEADER(''application/json'', FALSE);
+                       OWA_UTIL.STATUS_LINE(l_code, NULL, FALSE);
+                       OWA_UTIL.HTTP_HEADER_CLOSE;
+                       HTP.P(l_out.to_string);
+                     ELSE
+                       RAISE;
+                     END IF;
                  END;',
     p_mimes_allowed => 'application/json'
   );
@@ -270,6 +354,73 @@ BEGIN
                  LEFT JOIN fraud_alert fa ON fa.analyst_id = an.analyst_id
                  GROUP BY an.analyst_id, an.name, an.department
                  ORDER BY total_assigned DESC'
+  );
+
+  -- -------------------------------------------------------------------
+  -- Reference data used by the customer portal and transfer form
+  -- -------------------------------------------------------------------
+  ORDS.DEFINE_TEMPLATE(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'accounts'
+  );
+
+  ORDS.DEFINE_HANDLER(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'accounts',
+    p_method => 'GET',
+    p_source_type => ORDS.source_type_collection_feed,
+    p_source => 'SELECT a.account_id, a.account_number, a.customer_id,
+                        c.first_name || '' '' || c.last_name AS customer_name,
+                        CASE
+                          WHEN sa.account_id IS NOT NULL THEN ''SAVINGS''
+                          WHEN ca.account_id IS NOT NULL THEN ''CURRENT''
+                          ELSE ''GENERAL''
+                        END AS account_type,
+                        a.balance, a.status, a.opened_date,
+                        sa.interest_rate, sa.minimum_balance, ca.overdraft_limit,
+                        (SELECT MIN(addr.city) FROM customer_address addr
+                          WHERE addr.customer_id = a.customer_id) AS home_city
+                 FROM account a
+                 JOIN customer c ON c.customer_id = a.customer_id
+                 LEFT JOIN savings_account sa ON sa.account_id = a.account_id
+                 LEFT JOIN current_account ca ON ca.account_id = a.account_id
+                 WHERE :customer_id IS NULL
+                    OR a.customer_id = TO_NUMBER(:customer_id)
+                 ORDER BY a.account_id'
+  );
+
+  ORDS.DEFINE_TEMPLATE(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'merchants'
+  );
+
+  ORDS.DEFINE_HANDLER(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'merchants',
+    p_method => 'GET',
+    p_source_type => ORDS.source_type_collection_feed,
+    p_source => 'SELECT merchant_id, merchant_name, category, location, risk_level
+                 FROM merchant
+                 ORDER BY merchant_name'
+  );
+
+  ORDS.DEFINE_TEMPLATE(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'devices'
+  );
+
+  ORDS.DEFINE_HANDLER(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'devices',
+    p_method => 'GET',
+    p_source_type => ORDS.source_type_collection_feed,
+    p_source => 'SELECT d.device_id, d.device_type, d.device_identifier, d.location,
+                        (SELECT COUNT(*) FROM bank_transaction t
+                          JOIN account a ON a.account_id = t.account_id
+                          WHERE t.device_id = d.device_id
+                            AND a.customer_id = TO_NUMBER(:customer_id)) AS customer_usage
+                 FROM device d
+                 ORDER BY d.device_id'
   );
 
   COMMIT;
