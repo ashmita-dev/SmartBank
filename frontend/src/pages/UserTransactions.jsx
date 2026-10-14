@@ -4,6 +4,7 @@ import TransactionDialog from "../components/TransactionDialog";
 import {
   EmptyState,
   ErrorBanner,
+  FraudReview,
   LoadingState,
   PageHeader,
   RefreshButton,
@@ -12,9 +13,10 @@ import {
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
 import { loadCustomerData } from "../utils/customerData";
+import { isUnderReview } from "../utils/fraud";
 import { formatCurrency, formatDate, matchesSearch, transactionStatus } from "../utils/format";
 
-const STATUSES = ["ALL", "COMPLETED", "FLAGGED", "PENDING", "REJECTED"];
+const STATUSES = ["ALL", "COMPLETED", "FLAGGED", "PENDING", "REJECTED", "UNDER REVIEW"];
 const INCOMING_TYPES = ["CREDIT", "DEPOSIT"];
 
 function UserTransactions() {
@@ -34,7 +36,9 @@ function UserTransactions() {
   const filtered = useMemo(
     () =>
       transactions.filter((t) => {
-        if (statusFilter !== "ALL" && transactionStatus(t) !== statusFilter) return false;
+        if (statusFilter === "UNDER REVIEW") {
+          if (!isUnderReview(t.alert)) return false;
+        } else if (statusFilter !== "ALL" && transactionStatus(t) !== statusFilter) return false;
         if (accountFilter !== "ALL" && String(t.account_id) !== accountFilter) return false;
 
         return matchesSearch(
@@ -54,11 +58,14 @@ function UserTransactions() {
       <PageHeader
         eyebrow="PERSONAL BANKING"
         title="My Transactions"
-        description="Every transaction on your accounts. FLAGGED transactions were scored HIGH risk and sent for analyst review."
+        description="Every transaction on your accounts. Payment status and fraud review are separate: a MEDIUM-risk alert keeps the payment COMPLETED, while HIGH risk also marks it FLAGGED."
         actions={<RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh transactions" />}
       />
 
       <ErrorBanner error={error} onRetry={refresh} />
+      {data?.alertsError && (
+        <ErrorBanner error={{ message: `Fraud review column unavailable: ${data.alertsError.message}` }} onRetry={refresh} />
+      )}
 
       <section className="toolbar toolbar-stack">
         <label className="search-box">
@@ -125,7 +132,8 @@ function UserTransactions() {
                   <th scope="col" className="num">Amount</th>
                   <th scope="col">Location</th>
                   <th scope="col">Date</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">Payment status</th>
+                  <th scope="col">Fraud review</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,6 +172,7 @@ function UserTransactions() {
                       <td>{t.location || "—"}</td>
                       <td><small>{formatDate(t.transaction_time)}</small></td>
                       <td><StatusBadge status={transactionStatus(t)} /></td>
+                      <td><FraudReview alert={t.alert} /></td>
                     </tr>
                   );
                 })}

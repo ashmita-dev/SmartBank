@@ -92,6 +92,21 @@ export function RiskBadge({ level }) {
   return <span className={`risk-badge ${riskClass(level)}`}>{level || "—"}</span>;
 }
 
+// Fraud-review column: shows the FRAUD_ALERT for a transaction, separate from
+// its payment status. `alert === undefined` means alerts could not be loaded.
+export function FraudReview({ alert }) {
+  if (alert === undefined) return <span className="review-none">Unavailable</span>;
+  if (!alert) return <span className="review-none">No alert</span>;
+
+  return (
+    <span className="review-cell">
+      <RiskBadge level={alert.risk_level} />
+      <span className="score-text">{alert.risk_score}</span>
+      <StatusBadge status={alert.status} />
+    </span>
+  );
+}
+
 export function SummaryCard({ icon, label, value, tone }) {
   return (
     <div className={`summary-card ${tone || ""}`}>

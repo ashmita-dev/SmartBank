@@ -272,6 +272,45 @@ button.system-status {
   color: var(--sb-red);
 }
 
+.system-status.degraded {
+  border-color: rgba(255, 191, 84, 0.35);
+}
+
+.system-status.degraded .status-dot,
+.live-status.degraded .live-dot {
+  background: var(--sb-amber);
+  box-shadow: 0 0 10px rgba(255, 191, 84, 0.7);
+}
+
+.system-status.degraded span:last-child {
+  color: #d9b36a;
+  word-break: break-word;
+}
+
+.live-status.degraded {
+  color: var(--sb-amber);
+}
+
+/* Fraud review cell: risk badge + score + alert status */
+.review-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-cell .score-text {
+  color: var(--sb-text);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-none {
+  color: var(--sb-muted);
+  font-size: 12px;
+}
+
 .live-status.checking {
   color: var(--sb-amber);
 }

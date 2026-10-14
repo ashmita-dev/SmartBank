@@ -58,7 +58,7 @@ function UserTransfer() {
   const merchants = Array.isArray(data?.merchants) ? data.merchants : [];
   const devices = Array.isArray(data?.devices) ? data.devices : [];
   const referenceError = data?.merchants?.error || data?.devices?.error;
-  const homeCity = accounts.find((a) => a.home_city)?.home_city || "";
+  const homeCity = data?.profile?.home_city || accounts.find((a) => a.home_city)?.home_city || "";
 
   const accountId = form.accountId || String(accounts[0]?.account_id ?? "");
 

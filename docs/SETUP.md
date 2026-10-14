@@ -92,8 +92,11 @@ END;
 
 Publish or refresh the API by running **`database/ords_endpoints.sql` as `smartbank_user`**.
 The script redefines the whole `smartbank.api` module, so it is safe to run repeatedly.
-It publishes 12 handlers, including the `accounts`, `merchants` and `devices` endpoints
-and the updated `PUT /alerts/:id`, used by the current frontend.
+It publishes 13 handlers, including `GET /accounts`, `/merchants`, `/devices` and
+`/customers/:id` and the updated `PUT /alerts/:id` and `POST /transactions`, used by the
+current frontend. The SELECTs of the new GET handlers were run read-only against the live
+schema (20 accounts with 20 distinct IDs, so no duplicate rows; customer 1 has 2 accounts),
+and both PL/SQL handlers compile (`DBMS_SQL.PARSE`, nothing executed).
 
 The easiest way (with ORDS running) is:
 
@@ -102,8 +105,9 @@ powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
 ```
 
 It asks for the `SMARTBANK_USER` password in a hidden prompt, passes it to `sqlplus` on
-standard input only (never on the command line or in a file), runs the script, then calls
-all 9 GET endpoints.
+standard input only (never on the command line or in a file), runs `ords_endpoints.sql` and
+`14_demo_customer_profile.sql` (add `-SkipProfile` to leave customer #1's name unchanged),
+then calls all 11 read endpoints.
 
 Start ORDS (keep this terminal open), or let `scripts\start-backend.ps1` do it:
 

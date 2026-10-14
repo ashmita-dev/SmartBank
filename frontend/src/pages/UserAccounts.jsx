@@ -59,8 +59,9 @@ function UserAccounts() {
       {data?.accountsError && (
         <ErrorBanner
           error={{
-            message: `Account balances and types are unavailable: ${data.accountsError.message} Showing account numbers found in your transactions instead.`,
+            message: `Balances and account types are unavailable. ${data.accountsError.message} Until then, the account numbers below come from your transaction history.`,
           }}
+          onRetry={refresh}
         />
       )}
 

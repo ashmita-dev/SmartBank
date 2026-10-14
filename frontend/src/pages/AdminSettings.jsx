@@ -5,6 +5,7 @@ import {
   getAccounts,
   getAlerts,
   getAnalystWorkload,
+  getCustomer,
   getDailyAnalytics,
   getDevices,
   getKPIs,
@@ -25,6 +26,7 @@ const ENDPOINT_CHECKS = [
   { path: "GET /accounts", run: () => getAccounts(1) },
   { path: "GET /merchants", run: getMerchants },
   { path: "GET /devices", run: () => getDevices(1) },
+  { path: "GET /customers/:id", run: () => getCustomer(1) },
 ];
 
 // Mirrors CALCULATE_RISK and CLASSIFY_RISK in database/05_functions.sql.

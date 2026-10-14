@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { formatCurrency, formatDate, transactionStatus } from "../utils/format";
-import { StatusBadge } from "./ui";
+import { FraudReview, StatusBadge } from "./ui";
 
 function TransactionDialog({ transaction: t, onClose }) {
   const closeRef = useRef(null);
@@ -78,6 +78,26 @@ function TransactionDialog({ transaction: t, onClose }) {
             <span>Device</span>
             <strong>{t.device_identifier ? `${t.device_identifier} (${t.device_type})` : "—"}</strong>
           </div>
+          <div className="full-detail">
+            <span>Fraud review</span>
+            <FraudReview alert={t.alert} />
+          </div>
+          {t.alert && (
+            <>
+              <div className="full-detail">
+                <span>Detection reasons</span>
+                <strong>{t.alert.reason || "—"}</strong>
+              </div>
+              <div>
+                <span>Alert</span>
+                <strong>#{t.alert.alert_id}</strong>
+              </div>
+              <div>
+                <span>Assigned analyst</span>
+                <strong>{t.alert.analyst_name || "Unassigned"}</strong>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

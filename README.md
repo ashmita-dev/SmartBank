@@ -56,7 +56,8 @@ balances, statuses, amounts and risk ranges.
 | `10_views.sql` | 4 reporting views, including `V_DAILY_TRANSACTION_ANALYTICS` |
 | `11_indexes.sql` | 6 indexes on transaction and alert lookups |
 | `12_analytics_queries.sql` | Analytical query bank |
-| `13_testing.sql` | 15 scripted tests (inserts test rows) |
+| `13_testing.sql` | 15 scripted tests (tests 1–9 **commit** test rows; only 14–15 roll back) |
+| `14_demo_customer_profile.sql` | Renames demo customer #1 to Ashmita Mazumdar (one guarded UPDATE) |
 | `ords_endpoints.sql` | REST module definition |
 | `tests/` | Day-4 trigger/package test, Day-5 `EXPLAIN PLAN` index test |
 
@@ -95,14 +96,14 @@ Base URL: `http://localhost:8080/ords/smartbank/sb/api`
 | GET | `/alerts?risk_level=` | Fraud alerts |
 | GET / PUT | `/alerts/:id` | Alert detail / set `{"status": "..."}` |
 | GET | `/risk-distribution`, `/daily-analytics`, `/analysts/workload` | Analytics |
-| GET | `/accounts?customer_id=`, `/merchants`, `/devices?customer_id=` | Customer portal and transfer form |
+| GET | `/accounts?customer_id=`, `/merchants`, `/devices?customer_id=`, `/customers/:id` | Customer portal and transfer form |
 
 ## Frontend
 
 | Role | Demo login | Pages |
 |---|---|---|
 | Fraud analyst | `admin@smartbank.com` / `admin123` | Overview (KPIs, charts, review queue), Transactions (search + filters), Fraud Alerts (review dialog with status actions), Analyst Workload, System & Settings (live endpoint diagnostics) |
-| Customer (linked to customer #1, Aarav Sharma) | `user@smartbank.com` / `user123` | Dashboard, My Accounts, Transactions, New Transfer (real `POST /transactions` with fraud result), Profile |
+| Customer (linked to customer #1; the name shown is read from the `CUSTOMER` table) | `user@smartbank.com` / `user123` | Dashboard, My Accounts, Transactions, New Transfer (real `POST /transactions` with fraud result), Profile |
 
 The interface shows live database data only. When the API is unreachable, pages show
 an error with Retry and the status indicator turns red. No sample data is substituted.

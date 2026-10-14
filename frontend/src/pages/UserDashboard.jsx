@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   ChevronRight,
+  ShieldAlert,
   Wallet,
 } from "lucide-react";
 import {
@@ -15,12 +16,14 @@ import {
   Notice,
   PageHeader,
   RefreshButton,
+  RiskBadge,
   StatusBadge,
   SummaryCard,
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
 import { loadCustomerData } from "../utils/customerData";
+import { isUnderReview } from "../utils/fraud";
 import { formatCurrency, formatDate, transactionStatus } from "../utils/format";
 
 const INCOMING_TYPES = ["CREDIT", "DEPOSIT"];
@@ -40,13 +43,18 @@ function UserDashboard() {
   const transactions = data?.transactions || [];
   const balancesKnown = accounts.length > 0 && accounts.every((a) => a.balance != null);
   const totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0);
+  // Payment status FLAGGED = scored HIGH. Fraud review = any OPEN/INVESTIGATING
+  // alert (MEDIUM or HIGH) on this customer's own transactions.
   const flagged = transactions.filter((t) => transactionStatus(t) === "FLAGGED");
+  const alertsKnown = Boolean(data) && !data.alertsError;
+  const underReview = transactions.filter((t) => isUnderReview(t.alert));
+  const firstName = data?.profile?.first_name || data?.profile?.customer_name?.split(" ")[0];
 
   return (
     <>
       <PageHeader
         eyebrow="PERSONAL BANKING"
-        title={`Welcome back, ${user.name.split(" ")[0]}`}
+        title={firstName ? `Welcome back, ${firstName}` : "Welcome back"}
         description="Your accounts and recent activity, read live from the SmartBank Oracle database."
         actions={
           <>
@@ -61,24 +69,40 @@ function UserDashboard() {
 
       <ErrorBanner error={error} onRetry={refresh} />
 
-      {flagged.length > 0 && (
+      {data?.alertsError && (
+        <ErrorBanner
+          error={{ message: `Fraud review status is unavailable: ${data.alertsError.message}` }}
+          onRetry={refresh}
+        />
+      )}
+
+      {alertsKnown && underReview.length > 0 && (
         <Notice tone="warning">
-          {flagged.length} of your transactions {flagged.length === 1 ? "was" : "were"} flagged as
-          high risk by the fraud engine and {flagged.length === 1 ? "is" : "are"} under analyst review.
+          {underReview.length} of your transactions {underReview.length === 1 ? "has" : "have"} an open
+          fraud alert awaiting analyst review
+          {flagged.length > 0
+            ? `, including ${flagged.length} flagged as high risk.`
+            : ". None scored high risk, so their payments stayed COMPLETED."}
         </Notice>
       )}
 
-      <section className="alert-summary-grid">
+      <section className="alert-summary-grid four">
         <SummaryCard
           icon={<Wallet size={20} />}
           label="Total balance"
           value={balancesKnown ? formatCurrency(totalBalance) : "—"}
         />
-        <SummaryCard icon={<Activity size={20} />} label="Transactions" value={transactions.length} />
+        <SummaryCard icon={<Activity size={20} />} label="Transactions" value={data ? transactions.length : "—"} />
+        <SummaryCard
+          icon={<ShieldAlert size={20} />}
+          label="Under fraud review"
+          value={alertsKnown ? underReview.length : "—"}
+          tone={underReview.length ? "warning" : ""}
+        />
         <SummaryCard
           icon={<AlertTriangle size={20} />}
-          label="Flagged for review"
-          value={flagged.length}
+          label="Flagged (high risk)"
+          value={data ? flagged.length : "—"}
           tone={flagged.length ? "danger" : ""}
         />
       </section>
@@ -153,7 +177,10 @@ function UserDashboard() {
                     </div>
                     <div className="mini-side">
                       <strong>{formatCurrency(t.amount)}</strong>
-                      <StatusBadge status={transactionStatus(t)} />
+                      <span className="review-cell">
+                        <StatusBadge status={transactionStatus(t)} />
+                        {t.alert && <RiskBadge level={t.alert.risk_level} />}
+                      </span>
                     </div>
                   </div>
                 );

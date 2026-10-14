@@ -15,8 +15,9 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { API_BASE_URL, getKPIs } from "../api";
+import { API_BASE_URL, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { loadCustomerProfile } from "../utils/customerData";
 
 const NAVIGATION = {
   admin: [
@@ -42,7 +43,8 @@ function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [apiStatus, setApiStatus] = useState("checking");
+  const [health, setHealth] = useState({ status: "checking", failed: [] });
+  const [profileName, setProfileName] = useState(null);
 
   const role = user?.role === "admin" ? "admin" : "user";
   const items = NAVIGATION[role];
@@ -51,34 +53,55 @@ function AppLayout() {
       item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)
     ) || items[0];
 
-  const pingApi = useCallback(
+  // Health = every endpoint this portal depends on, not just one ping.
+  const probe = useCallback(
     () =>
-      getKPIs().then(
-        () => "online",
-        () => "offline"
-      ),
-    []
+      probeEndpoints(REQUIRED_ENDPOINTS[role], { customerId: user?.customerId }).then((results) => {
+        const failed = results.filter((r) => !r.ok);
+        const unreachable = failed.length === results.length && failed.every((r) => r.status === 0);
+        return {
+          status: failed.length === 0 ? "online" : unreachable ? "offline" : "degraded",
+          failed,
+        };
+      }),
+    [role, user?.customerId]
   );
 
   const checkApi = useCallback(() => {
-    setApiStatus("checking");
-    pingApi().then(setApiStatus);
-  }, [pingApi]);
+    setHealth((h) => ({ ...h, status: "checking" }));
+    probe().then(setHealth);
+  }, [probe]);
 
   useEffect(() => {
     let cancelled = false;
-    const update = (status) => {
-      if (!cancelled) setApiStatus(status);
+    const update = (result) => {
+      if (!cancelled) setHealth(result);
     };
 
-    pingApi().then(update);
-    const timer = setInterval(() => pingApi().then(update), API_CHECK_INTERVAL_MS);
+    probe().then(update);
+    const timer = setInterval(() => probe().then(update), API_CHECK_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [pingApi]);
+  }, [probe]);
+
+  // Customer display name comes from the CUSTOMER table, not the login.
+  useEffect(() => {
+    if (role !== "user" || !user?.customerId) return undefined;
+    let cancelled = false;
+
+    loadCustomerProfile(user.customerId)
+      .then((profile) => {
+        if (!cancelled) setProfileName(profile.customer_name);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role, user?.customerId]);
 
   useEffect(() => {
     document.title = `${current.label} | SmartBank`;
@@ -100,11 +123,15 @@ function AppLayout() {
     navigate("/login", { replace: true });
   }
 
+  const apiStatus = health.status;
+  const failedNames = health.failed.map((f) => f.path).join(", ");
   const statusLabel = {
     checking: "Checking API…",
     online: "API online",
+    degraded: "API degraded",
     offline: "API offline",
   }[apiStatus];
+  const displayName = role === "user" ? profileName || user?.email : user?.name;
 
   return (
     <div className="app-shell">
@@ -166,7 +193,7 @@ function AppLayout() {
             type="button"
             className={`system-status ${apiStatus}`}
             onClick={checkApi}
-            title={`ORDS endpoint: ${API_BASE_URL} (click to re-check)`}
+            title={`ORDS endpoint: ${API_BASE_URL}${failedNames ? ` · Unavailable: ${failedNames}` : ""} · click to re-check`}
           >
             <span className="status-dot" />
             <div>
@@ -174,6 +201,8 @@ function AppLayout() {
               <span>
                 {apiStatus === "offline"
                   ? "Start Oracle XE + ORDS"
+                  : apiStatus === "degraded"
+                  ? `Unavailable: ${failedNames}`
                   : "Oracle 21c XE · ORDS"}
               </span>
             </div>
@@ -211,12 +240,12 @@ function AppLayout() {
           <div className="topbar-right">
             <div className={`live-status ${apiStatus}`} aria-live="polite">
               <span className="live-dot" />
-              {apiStatus === "online" ? "LIVE" : apiStatus === "offline" ? "OFFLINE" : "…"}
+              {{ online: "LIVE", degraded: "DEGRADED", offline: "OFFLINE" }[apiStatus] || "…"}
             </div>
 
             <div className="profile">
               <div className="profile-avatar" aria-hidden="true">
-                {(user?.name || "SB")
+                {(displayName || "SB")
                   .split(" ")
                   .map((part) => part[0])
                   .join("")
@@ -225,8 +254,8 @@ function AppLayout() {
               </div>
 
               <div className="profile-text">
-                <strong>{user?.name}</strong>
-                <span>{role === "admin" ? "Operations team" : `Customer #${user?.customerId}`}</span>
+                <strong>{displayName || "…"}</strong>
+                <span>{role === "admin" ? "Operations team" : "Personal banking"}</span>
               </div>
 
               <button

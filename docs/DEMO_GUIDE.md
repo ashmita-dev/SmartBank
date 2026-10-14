@@ -5,7 +5,7 @@
 1. Start the backend: `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1`.
    Accept the UAC prompt; it only starts the Oracle listener service. Wait for "API is up".
 2. Start the frontend: `cd frontend` then `npm run dev`, and open <http://localhost:5173>.
-3. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm all 9 checks are green.
+3. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm all 10 checks are green.
 4. Keep SQL Developer (or SQLcl) open as `smartbank_user`, with `05_functions.sql` and `07_triggers.sql` ready to show.
 
 > If `/accounts`, `/merchants` or `/devices` fail, run `scripts\register-endpoints.ps1` once (hidden password prompt).
@@ -28,7 +28,14 @@
 
 ## 3. Live fraud detection (3 min) — `user@smartbank.com` / `user123`
 
-Sign out, then sign in as **Customer**. This demo customer is linked to customer #1, Aarav Sharma (home city Mumbai).
+Sign out, then sign in as **Customer**. This demo login is linked to customer #1 (home city Mumbai).
+The name shown comes from the `CUSTOMER` table: **Ashmita Mazumdar** once
+`14_demo_customer_profile.sql` has run (via `register-endpoints.ps1`), otherwise the seed name.
+
+Point out the two fraud figures on the dashboard: **Under fraud review = 8** (customer #1's
+transactions with an OPEN MEDIUM alert) and **Flagged (high risk) = 0**. MEDIUM risk raises an
+alert but leaves the payment COMPLETED; only HIGH sets FLAGGED. The Transactions page shows
+both columns side by side, and the **UNDER REVIEW** filter lists the 8.
 
 1. **Dashboard / My Accounts**: the customer sees only their own savings and current accounts.
 2. **New Transfer**, a safe transaction first:

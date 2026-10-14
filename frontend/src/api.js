@@ -43,16 +43,29 @@ async function readBody(response) {
   }
 }
 
-function errorMessage(body, status) {
-  if (body && typeof body === "object") {
-    return body.error || body.message || body.title || `Request failed (HTTP ${status})`;
+function routeName(endpoint) {
+  // "/alerts/81?x=1" -> "GET /alerts/:id"; keeps messages readable.
+  const path = endpoint.split("?")[0].replace(/\/\d+(?=\/|$)/g, "/:id");
+  return path;
+}
+
+function errorMessage(body, status, endpoint, method) {
+  // Messages written by our own PL/SQL handlers ({"error": "..."}).
+  if (body && typeof body === "object" && body.error) {
+    return body.error;
   }
 
   if (status === 404) {
-    return "Endpoint not found (HTTP 404). Re-run database/ords_endpoints.sql to publish the latest API.";
+    return `The ${method} ${routeName(endpoint)} endpoint is not published in ORDS yet. ` +
+      "Run scripts\\register-endpoints.ps1 to register the latest API, then press Retry.";
   }
 
-  return `Request failed (HTTP ${status})`;
+  if (status === 571 || status === 503) {
+    return "ORDS is running but cannot connect to the Oracle database. Check the listener and the ORDS pool (scripts\\start-backend.ps1).";
+  }
+
+  const detail = body && typeof body === "object" ? body.message || body.title : "";
+  return `${method} ${routeName(endpoint)} failed (HTTP ${status})${detail ? `: ${detail}` : ""}.`;
 }
 
 async function request(endpoint, options = {}) {
@@ -77,7 +90,10 @@ async function request(endpoint, options = {}) {
   const body = await readBody(response);
 
   if (!response.ok) {
-    throw new ApiError(errorMessage(body, response.status), response.status);
+    throw new ApiError(
+      errorMessage(body, response.status, endpoint, options.method || "GET"),
+      response.status
+    );
   }
 
   return body;
@@ -139,9 +155,38 @@ export function getDevices(customerId) {
   return collection("/devices", { customer_id: customerId });
 }
 
+export function getCustomer(customerId) {
+  return request(`/customers/${encodeURIComponent(customerId)}`);
+}
+
 export function createTransaction(transaction) {
   return request("/transactions", {
     method: "POST",
     body: JSON.stringify(transaction),
   });
+}
+
+// Read-only endpoints each portal depends on. Used by the health indicator;
+// collections are probed with limit=1 to keep the check cheap.
+export const REQUIRED_ENDPOINTS = {
+  admin: ["/kpis", "/transactions", "/alerts", "/risk-distribution", "/daily-analytics", "/analysts/workload"],
+  user: ["/transactions", "/alerts", "/accounts", "/merchants", "/devices", "/customers/:id"],
+};
+
+// Resolves to [{ path, ok, status, message }]. Never throws.
+export async function probeEndpoints(paths, { customerId } = {}) {
+  return Promise.all(
+    paths.map(async (path) => {
+      const url = path.includes(":id")
+        ? path.replace(":id", encodeURIComponent(customerId ?? 1))
+        : `${path}?limit=1${path === "/accounts" || path === "/devices" ? `&customer_id=${customerId ?? 1}` : ""}`;
+
+      try {
+        await request(url);
+        return { path, ok: true, status: 200 };
+      } catch (err) {
+        return { path, ok: false, status: err.status ?? 0, message: err.message };
+      }
+    })
+  );
 }

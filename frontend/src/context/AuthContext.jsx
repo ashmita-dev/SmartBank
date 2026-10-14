@@ -4,14 +4,14 @@ const AuthContext = createContext(null);
 
 // Demonstration accounts only. Authentication happens in the browser and is
 // NOT secure: the ORDS API itself is unauthenticated. The customer login is
-// linked to CUSTOMER_ID 1 in the seed data so the portal shows that
-// customer's real accounts and transactions.
+// linked to CUSTOMER_ID 1; the customer's displayed name is read from the
+// CUSTOMER table (see utils/customerData.js), never hard-coded here.
 const DEMO_USERS = {
   "user@smartbank.com": {
     email: "user@smartbank.com",
     password: "user123",
     role: "user",
-    name: "Aarav Sharma",
+    name: "Demo customer",
     customerId: 1,
   },
   "admin@smartbank.com": {

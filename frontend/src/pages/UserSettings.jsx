@@ -16,7 +16,8 @@ function UserSettings() {
   }
 
   const accounts = data?.accounts || [];
-  const homeCity = accounts.find((a) => a.home_city)?.home_city;
+  const profile = data?.profile;
+  const homeCity = profile?.home_city || accounts.find((a) => a.home_city)?.home_city;
 
   return (
     <>
@@ -27,6 +28,14 @@ function UserSettings() {
       />
 
       <ErrorBanner error={error} onRetry={refresh} />
+      {profile?.source === "transactions" && (
+        <ErrorBanner
+          error={{
+            message: `Showing the name recorded on your transactions; the full profile is unavailable. ${profile.error?.message || ""}`,
+          }}
+          onRetry={refresh}
+        />
+      )}
 
       <section className="settings-grid">
         <div className="panel settings-panel">
@@ -41,9 +50,15 @@ function UserSettings() {
           </div>
 
           <div className="system-info-list">
-            <div><span>Name</span><strong>{accounts[0]?.customer_name || user.name}</strong></div>
+            <div><span>Name</span><strong>{profile?.customer_name || "Unavailable"}</strong></div>
             <div><span>Customer ID</span><strong>{user.customerId}</strong></div>
-            <div><span>Sign-in email</span><strong>{user.email}</strong></div>
+            {profile?.customer_type && (
+              <div><span>Customer type</span><strong>{profile.customer_type}</strong></div>
+            )}
+            {profile?.email && (
+              <div><span>Email on file</span><strong>{profile.email}</strong></div>
+            )}
+            <div><span>Demo sign-in</span><strong>{user.email}</strong></div>
             <div><span>Home city</span><strong>{homeCity || "—"}</strong></div>
             <div><span>Accounts</span><strong>{accounts.map((a) => a.account_number).join(", ") || "—"}</strong></div>
           </div>

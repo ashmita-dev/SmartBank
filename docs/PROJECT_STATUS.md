@@ -113,12 +113,49 @@ and at most 1 `FRAUD_ALERT` row, and can update only the new transaction's statu
 which stays disabled until `/merchants` and `/devices` exist. Registering them needs the
 `SMARTBANK_USER` password.
 
-## Remaining work (needs you, about 1 minute)
+### Fifth pass: issues found in the browser (14 Oct 2026)
 
-1. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
-2. Then the single controlled write test: as customer #1, transfer ₹1,50,000 to *QuickCash Loans*
-   from AC1000001, location `Lagos`, device `DEV-WIN-0003` (new for this account). Expected:
-   status FLAGGED, HIGH alert with score 80 (amount +40, new device +20, unusual location +20).
+**Fraud engine, verified against the live data** (read-only queries):
+
+| Fact | Live result |
+|---|---|
+| Transaction statuses | 98 COMPLETED, 3 FLAGGED |
+| Alerts | 3 HIGH (score 80, INVESTIGATING), 72 MEDIUM (40–65, OPEN) |
+| HIGH alert → transaction FLAGGED | 3 of 3 |
+| MEDIUM alert → transaction stays COMPLETED | 72 of 72 (by design in `DETECT_FRAUD`) |
+| FLAGGED without a HIGH alert | 0 |
+| Customer #1 | 11 transactions, 0 FLAGGED, **8 with an OPEN MEDIUM alert** |
+
+The engine matches its specification. The customer KPI "Flagged for review: 0" counted only
+FLAGGED status and ignored open MEDIUM alerts. It is now split into **Under fraud review**
+(8, from the customer's own OPEN/INVESTIGATING alerts) and **Flagged (high risk)** (0, from
+payment status). Transaction tables show payment status and fraud review as separate columns.
+
+**Fixes:** the customer name is read from the database (`GET /customers/:id`, falling back to the
+name on the customer's own transactions); nothing is hard-coded. "Customer #1" was removed.
+`14_demo_customer_profile.sql` renames customer #1 to Ashmita Mazumdar. The health indicator
+probes every endpoint the portal needs (online / degraded / offline). ORDS's raw "Not Found"
+is replaced with "The GET /x endpoint is not published in ORDS yet…" plus a working Retry, and
+data that failed to load shows "—" instead of 0.
+
+| Test | Result |
+|---|---|
+| New GET handler SQL (`accounts`, `merchants`, `devices`, `customers/:id`), read-only | 20 accounts / 20 distinct IDs (no duplicates); customer 1 → 2 accounts; 8 merchants; 12 devices; 1 profile row |
+| `POST /transactions`, `PUT /alerts/:id` PL/SQL | Both compile (`DBMS_SQL.PARSE`, not executed) |
+| `npm run lint` / `npm run build` | **Pass** |
+| Live read-only browser test, 27 checks (identity, KPIs, fraud columns and filters, helpful errors, health states, alerts page, diagnostics) | **27/27 pass**, no write requests, no console errors |
+| Mocked full UI suite (includes the transfer and alert-status UI) | **37/37 pass** |
+| Table checksums before/after | **Identical** (no data changed) |
+| `13_testing.sql` as an isolated write test | **Not suitable**: tests 1–9 commit their rows; not run against live data |
+
+## Remaining work (needs you)
+
+1. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the
+   `SMARTBANK_USER` password. This publishes the 4 missing GET endpoints, renames customer #1 to
+   Ashmita Mazumdar (add `-SkipProfile` to skip that), and checks 11 endpoints.
+2. Optional live write test (permanent: cleanup would require deleting rows, which is not done):
+   as customer #1, transfer ₹1,50,000 to *QuickCash Loans* from AC1000001, location `Lagos`, device
+   `DEV-WIN-0003`. Expected: FLAGGED, HIGH alert, score 80. Run only with explicit approval.
 
 ## Known limitations
 * Demo authentication runs in the browser; roles are enforced only in the UI. The ORDS module has no OAuth.
