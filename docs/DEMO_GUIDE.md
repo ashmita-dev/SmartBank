@@ -9,6 +9,8 @@
 4. Keep SQL Developer (or SQLcl) open as `smartbank_user`, with `05_functions.sql` and `07_triggers.sql` ready to show.
 
 > If `/accounts`, `/merchants` or `/devices` fail, run `scripts\register-endpoints.ps1` once (hidden password prompt).
+> Until then, the analyst console works fully on live data. The customer **New Transfer** page
+> stays disabled, and **My Accounts** shows account numbers without balances; both say why on screen.
 
 ## 1. The problem and the design (1 min)
 

@@ -87,12 +87,38 @@ _Last updated: 14 Oct 2026_
   `db.password`. `ORDS_PUBLIC_USER` is OPEN and not expired. The network path is fine.
 * Added `scripts/repair-ords-pool.ps1` and a pre-flight check in `start-backend.ps1`.
 
-## Remaining work (needs you, about 3 minutes)
+### Fourth pass: live API verified (14 Oct 2026)
 
-1. `powershell -ExecutionPolicy Bypass -File scripts\repair-ords-pool.ps1`: type the `ORDS_PUBLIC_USER` password, **or** add `-ResetPassword` if nobody knows it.
-2. `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1` (expect "API is up").
-3. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
-4. Optional: run the transfer scenario from DEMO_GUIDE §3 to see trigger → alert integration live.
+The owner stored the existing `ORDS_PUBLIC_USER` password with `repair-ords-pool.ps1`
+(no password was changed), and ORDS reports the `smartbank` pool as VALID.
+
+| Test (against the real ORDS + Oracle) | Result |
+|---|---|
+| `GET /kpis` | **200**: 15 customers, 20 accounts, 101 transactions, 75 alerts, 72 open, 3 high risk |
+| `GET /transactions`, `/alerts`, `/alerts/81`, `/risk-distribution`, `/daily-analytics`, `/analysts/workload` | **All 200**, fields as the frontend expects |
+| ORDS default page size | 50 rows with `hasMore=true`. With the frontend's `limit` parameter, all 101 are returned, so the pagination fix is confirmed. |
+| CORS preflight (`POST` from `http://localhost:5173`) | **Allowed** |
+| `GET /accounts`, `/merchants`, `/devices` | **404**: not registered yet |
+| `npm run lint` / `npm run build` | **Pass** |
+| Read-only browser test against the live API (16 checks, headless Chrome) | **16/16 pass**: live KPIs and chart, all 101 transactions, FLAGGED filter (3), search, alert detail dialog, analyst workload, endpoint diagnostics (6/9 as expected), customer scoping (11 transactions), honest fallbacks. **No write requests sent, no console errors.** |
+| Table checksums before/after testing | Unchanged: `BANK_TRANSACTION` 101 rows (max id 201), `FRAUD_ALERT` 75 rows (max id 81) |
+
+**Write-path impact analysis (verified, not yet executed).** All six deployed objects on the
+insert path (`CALCULATE_RISK`, `CLASSIFY_RISK`, `DETECT_FRAUD`, `GENERATE_ALERT`, both
+triggers) match the repository source exactly. One transfer inserts 1 `BANK_TRANSACTION` row
+and at most 1 `FRAUD_ALERT` row, and can update only the new transaction's status
+(`WHERE transaction_id = p_transaction_id`). No statement touches balances or existing rows.
+
+**Live write test: not run yet.** The authorised test must go through the transfer page,
+which stays disabled until `/merchants` and `/devices` exist. Registering them needs the
+`SMARTBANK_USER` password.
+
+## Remaining work (needs you, about 1 minute)
+
+1. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
+2. Then the single controlled write test: as customer #1, transfer ₹1,50,000 to *QuickCash Loans*
+   from AC1000001, location `Lagos`, device `DEV-WIN-0003` (new for this account). Expected:
+   status FLAGGED, HIGH alert with score 80 (amount +40, new device +20, unusual location +20).
 
 ## Known limitations
 * Demo authentication runs in the browser; roles are enforced only in the UI. The ORDS module has no OAuth.

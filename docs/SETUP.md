@@ -117,6 +117,14 @@ Check it:
 curl http://localhost:8080/ords/smartbank/sb/api/kpis
 ```
 
+### Verified state (14 Oct 2026)
+
+* The listener service runs on `localhost:1521` and `xepdb1` is registered.
+* The ORDS `smartbank` pool is VALID (`ORDS_PUBLIC_USER` password stored in the pool wallet).
+* `http://localhost:8080/ords/smartbank/sb/api/kpis` returns live data. The original 9
+  handlers all answer. `/accounts`, `/merchants` and `/devices` appear once
+  `scripts\register-endpoints.ps1` has been run.
+
 ## 5. Frontend
 
 ```powershell
