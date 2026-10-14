@@ -18,27 +18,34 @@ Replace `<password>` with your own values and never commit them.
    `OracleOraDB21Home1TNSListener` (listener).
 2. Make sure both are **Running** (`services.msc`, or `lsnrctl status` in a terminal).
 
-### Use `localhost`, not the Wi-Fi IP
+### Networking uses `localhost` (fixed 14 Oct 2026)
 
-On the development machine, `listener.ora` and the ORDS pool were configured with a
-fixed LAN address (`10.168.41.144`). When the network assigns a different IP, the
-listener cannot start and ORDS cannot connect, and the dashboard shows **API offline**.
-Point both at `localhost`. This also keeps the database off the local network.
+The listener, client aliases, the database's registration target and the ORDS pool were
+originally pinned to Wi-Fi addresses (`10.168.41.144`, `10.168.42.20`). Whenever the
+network handed out a different IP, the listener could not start and the dashboard showed
+**API offline**. All four now use `localhost`, which is stable and keeps port 1521 off the network:
 
-1. Edit `C:\app\<user>\product\21c\homes\OraDB21Home1\network\admin\listener.ora` (keep a backup):
-   ```
-   (ADDRESS = (PROTOCOL = TCP)(HOST = localhost)(PORT = 1521))
-   ```
-2. Edit `C:\ords-config\databases\smartbank\pool.xml`:
-   ```xml
-   <entry key="db.hostname">localhost</entry>
-   ```
-3. Restart the listener from an **administrator** terminal:
-   ```powershell
-   lsnrctl stop
-   lsnrctl start
-   lsnrctl status     # XEPDB1 should be listed
-   ```
+| Setting | Now |
+|---|---|
+| `...\OraDB21Home1\network\admin\listener.ora` | `(HOST = localhost)` |
+| `...\OraDB21Home1\network\admin\tnsnames.ora` (`XE`, `LISTENER_XE`) | `(HOST = localhost)` |
+| Database parameter `LOCAL_LISTENER` | `(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))` |
+| `C:\ords-config\databases\smartbank\pool.xml` | `db.hostname = localhost` |
+
+Backups of the original files sit next to them with the suffix `.bak-20261014`. To undo
+the parameter change: `ALTER SYSTEM SET local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST=10.168.41.144)(PORT=1521))' SCOPE=BOTH;`
+
+### Starting the listener needs administrator rights
+
+`OracleOraDB21Home1TNSListener` is a Windows service, so a normal terminal gets
+`Unable to OpenSCManager: err=5` (access denied). Running `tnslsnr.exe` as your own user
+does not help either: it cannot hand connections to the database service, which runs as
+`NT SERVICE\OracleServiceXE` (ORA-12518). Either:
+
+* run `scripts\start-backend.ps1`, which asks for elevation (UAC) only to start the service, or
+* in an administrator terminal: `Start-Service OracleOraDB21Home1TNSListener`
+
+Optionally set the service's startup type to **Automatic** (`services.msc`) so this is never needed again.
 
 ## 3. Database schema
 
@@ -88,7 +95,17 @@ The script redefines the whole `smartbank.api` module, so it is safe to run repe
 It publishes 12 handlers, including the `accounts`, `merchants` and `devices` endpoints
 and the updated `PUT /alerts/:id`, used by the current frontend.
 
-Start ORDS (keep this terminal open):
+The easiest way (with ORDS running) is:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
+```
+
+It asks for the `SMARTBANK_USER` password in a hidden prompt, passes it to `sqlplus` on
+standard input only (never on the command line or in a file), runs the script, then calls
+all 9 GET endpoints.
+
+Start ORDS (keep this terminal open), or let `scripts\start-backend.ps1` do it:
 
 ```powershell
 C:\ords\bin\ords.exe --config C:\ords-config serve
@@ -123,12 +140,25 @@ npm run preview   # serve the build on http://localhost:4173
 In the analyst console, **System & Settings → Test all endpoints** checks every
 read-only endpoint against the live API.
 
-## 6. Troubleshooting
+## 6. Hosting the frontend (optional)
+
+`.github/workflows/deploy-frontend.yml` builds the frontend for GitHub Pages
+(`https://ashmita-dev.github.io/SmartBank/`). It runs **only when started manually**, and
+Pages must first be enabled once in **Settings → Pages → Source: GitHub Actions**.
+
+The hosted copy is the static interface only. It calls `http://localhost:8080/...`, so it
+shows **API offline** unless the visitor runs Oracle and ORDS on their own machine, and
+browsers may also block a public site from calling `localhost`. Do not point it at a public
+ORDS endpoint until that module is protected with OAuth2 and CORS is limited to the site.
+
+## 7. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| Red **API offline** badge, "Cannot reach the SmartBank API" | ORDS not running, or the listener is down. See §2 and §4. |
-| `lsnrctl start` fails with TNS-12545 / 12560 | `listener.ora` still has an old IP. Use `localhost`. |
+| Red **API offline** badge, "Cannot reach the SmartBank API" | ORDS not running, or the listener is down. Run `scripts\start-backend.ps1`. |
+| `lsnrctl start`: `Unable to OpenSCManager: err=5` | Not an administrator terminal. See §2. |
+| ORDS `DatabaseConnectionError` / ORA-12518 | Listener started as a normal user instead of as the Windows service. Stop it and start the service (§2). |
+| ORA-12514 (service XEPDB1 not known) | Wait about 60 s after starting the listener, or check that `LOCAL_LISTENER` points at `localhost`. |
 | My Accounts says balances are unavailable; transfer form disabled | `GET /accounts`, `/merchants`, `/devices` are not published yet. Re-run `ords_endpoints.sql`. |
 | Alert action says "The API saved status INVESTIGATING instead of …" | The old `PUT /alerts/:id` handler is still deployed. Re-run `ords_endpoints.sql`. |
 | Browser CORS error | Open the app via `localhost`, not a LAN IP, or adjust ORDS allowed origins. |

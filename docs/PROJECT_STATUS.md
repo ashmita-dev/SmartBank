@@ -56,21 +56,31 @@ _Last updated: 14 Oct 2026_
 | UI end-to-end, 37 checks | Headless Chrome (DevTools Protocol) against a **local mock ORDS server serving JSON exported read-only from the live schema** | **37/37 pass, 0 console errors**: logins, role guards, all 11 routes, search/filters, alert review, transfer flow, analyst diagnostics, mobile layout |
 | Degraded modes, 9 checks | Same harness: API offline; old ORDS module without the new endpoints | **9/9 pass**: clear errors, no invented data, transfer disabled with explanation |
 
+### Second pass (14 Oct 2026, afternoon)
+
+| Step | Result |
+|---|---|
+| Found every obsolete IP | `listener.ora` (10.168.41.144), `tnsnames.ora` (10.168.42.20, two aliases), DB parameter `LOCAL_LISTENER` (10.168.41.144), ORDS `pool.xml` (10.168.41.144). The current Wi-Fi IP is 10.168.59.154. |
+| Repointed all four to `localhost` | **Done**; backups saved as `*.bak-20261014` |
+| User-mode listener on `localhost:1521` | Started, and `xepdb1` registered, which confirms the new `LOCAL_LISTENER` works |
+| ORDS started | Started and reached the listener, but got **ORA-12518**: a listener running as the user cannot hand off to the DB service (`NT SERVICE\OracleServiceXE`). Stopped again. |
+| Start the listener **service** | **Blocked**: `OpenSCManager err=5` (not elevated); the elevation request was not permitted in this session |
+| Register endpoints | **Not done**: needs the `SMARTBANK_USER` password. `scripts/register-endpoints.ps1` added for a one-command run. |
+| Lint / build | **Pass** (also a `/SmartBank/` sub-path build) |
+| UI end-to-end (mock API) | **37/37 pass**, 0 console errors (re-run after the router change) |
+| Sub-path routing (GitHub Pages layout) | **Pass**: `/SmartBank/login` renders; `/SmartBank/admin` redirects to login |
+
 ### Not tested against a live API
-* **ORDS was not running and could not be started during this session.** The listener and
-  ORDS are bound to an old LAN IP (see SETUP §2). Changing those system files was outside
-  the permitted scope, so no request reached the real ORDS.
-* The updated `ords_endpoints.sql` (new endpoints and handler changes) has **not been run**
-  against the database. It needs `smartbank_user` credentials.
-* `01_tables.sql` / `03_seed_data.sql` have not been executed on a fresh schema.
-* `13_testing.sql` was not re-run in this session.
+* No request has reached the real ORDS with a working database connection. That waits on
+  the listener service starting (see below).
+* The updated `ords_endpoints.sql` has **not been run** against the database.
+* `01_tables.sql` / `03_seed_data.sql` have not been executed on a fresh schema; `13_testing.sql` was not re-run.
 
-## Remaining work (manual, about 15 minutes)
+## Remaining work (needs you, about 3 minutes)
 
-1. Point `listener.ora` and `C:\ords-config\databases\smartbank\pool.xml` at `localhost`, then restart the listener (SETUP §2).
-2. Run `database/ords_endpoints.sql` as `smartbank_user`.
-3. Start ORDS. In the analyst console, use **System & Settings → Test all endpoints**; expect 9/9 green.
-4. Run the transfer scenario from DEMO_GUIDE §3 to confirm live trigger → alert integration.
+1. `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1`, then accept the UAC prompt (starts the listener service and ORDS).
+2. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
+3. Optional: run the transfer scenario from DEMO_GUIDE §3 to see trigger → alert integration live.
 
 ## Known limitations
 * Demo authentication runs in the browser; roles are enforced only in the UI. The ORDS module has no OAuth.
@@ -79,9 +89,12 @@ _Last updated: 14 Oct 2026_
 * Re-running `03_seed_data.sql` regenerates alerts through the trigger, so statuses return to OPEN.
 
 ## Deployment status
-**Not deployed.** No hosting provider is configured in the repository. A public frontend
-would be unable to reach the local ORDS API, and exposing ORDS publicly is unsafe because
-the module is unauthenticated. The supported demonstration setup is local
-(`npm run dev` or `npm run build && npm run preview`). To host later: deploy `frontend/dist`
-to any static host, set `VITE_API_BASE_URL` to an HTTPS ORDS endpoint, and first protect the
-ORDS module with OAuth2 and CORS restricted to the site's origin.
+**Not deployed.** The only provider available is GitHub: the CLI is authenticated and the repo
+is public, but Pages is not enabled. Enabling it is a repository settings change that was not
+made without your approval. Prepared instead:
+* `.github/workflows/deploy-frontend.yml`, a manual-only build-and-publish to GitHub Pages
+* sub-path support (`BASE_PATH` build variable and router `basename`), verified locally
+
+A hosted copy would show the interface only, with "API offline" for visitors. ORDS must not
+be exposed publicly while the module has no authentication. The supported demonstration
+setup is local.

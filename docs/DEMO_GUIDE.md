@@ -2,13 +2,13 @@
 
 ## Before the presentation (5 minutes)
 
-1. Check that Oracle and the listener are up: `lsnrctl status`. If the listener fails, see SETUP §2 (use `localhost`).
-2. Start ORDS: `C:\ords\bin\ords.exe --config C:\ords-config serve`
-3. Start the frontend: `cd frontend` then `npm run dev`, and open <http://localhost:5173>.
-4. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm all 9 checks are green.
-5. Keep SQL Developer (or SQLcl) open as `smartbank_user`, with `05_functions.sql` and `07_triggers.sql` ready to show.
+1. Start the backend: `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1`.
+   Accept the UAC prompt; it only starts the Oracle listener service. Wait for "API is up".
+2. Start the frontend: `cd frontend` then `npm run dev`, and open <http://localhost:5173>.
+3. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm all 9 checks are green.
+4. Keep SQL Developer (or SQLcl) open as `smartbank_user`, with `05_functions.sql` and `07_triggers.sql` ready to show.
 
-> If any endpoint fails, re-run `database/ords_endpoints.sql` as `smartbank_user`.
+> If `/accounts`, `/merchants` or `/devices` fail, run `scripts\register-endpoints.ps1` once (hidden password prompt).
 
 ## 1. The problem and the design (1 min)
 

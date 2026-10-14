@@ -112,12 +112,19 @@ an error with Retry and the status indicator turns red. No sample data is substi
 See [docs/SETUP.md](docs/SETUP.md) for the full setup and [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for the demonstration script.
 
 ```powershell
-# 1. Oracle XE service and listener running; ORDS serving on port 8080
-# 2. Frontend
+# 1. Backend: starts the Oracle listener service (UAC prompt) and ORDS, then checks the API
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1
+
+# 2. One time only: publish the latest REST endpoints (hidden SMARTBANK_USER password prompt)
+powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
+
+# 3. Frontend
 cd frontend
 npm ci
 npm run dev        # http://localhost:5173
 ```
+
+The API URL can be overridden with `VITE_API_BASE_URL` (see `frontend/.env.example`).
 
 ## Testing
 
@@ -131,3 +138,4 @@ npm run dev        # http://localhost:5173
 * **The ORDS module is unauthenticated.** Keep ORDS on localhost; do not expose it publicly.
 * **Transfers do not move money.** They are recorded in `BANK_TRANSACTION` and screened for fraud, but balances are not changed.
 * The backend runs locally. A hosted frontend alone cannot reach a local Oracle/ORDS.
+  A manual GitHub Pages workflow is provided for the static interface (see SETUP §6), but it has not been enabled.

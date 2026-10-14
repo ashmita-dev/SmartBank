@@ -21,7 +21,7 @@ const UserSettings = lazy(() => import("./pages/UserSettings"));
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}>
       <AuthProvider>
         <Suspense fallback={<LoadingState text="Loading…" />}>
         <Routes>
