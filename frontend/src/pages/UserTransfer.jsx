@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Info, ShieldAlert, ShieldCheck } from "lucide-react";
 import { createTransaction, getAlerts, getDevices, getMerchants, getTransactions } from "../api";
@@ -39,6 +39,20 @@ async function findCreatedTransaction(accountNumber, accountId, previousMaxId) {
 
 const EMPTY_FORM = { accountId: "", merchantId: "", deviceId: "", amount: "", location: "" };
 
+// TRG_VALIDATE_TRANSACTION rejects amounts above ₹1,00,00,000 and
+// CHK_TXN_AMOUNT requires amount > 0; check both before calling the API.
+const MAX_AMOUNT = 10000000;
+
+function validateAmount(raw) {
+  if (raw === "" || raw == null) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return "Enter a number.";
+  if (value <= 0) return "Amount must be greater than ₹0.";
+  if (value > MAX_AMOUNT) return "Amount cannot exceed ₹1,00,00,000 (database limit).";
+  if (!/^\d+(\.\d{1,2})?$/.test(String(raw).trim())) return "Use at most two decimal places.";
+  return null;
+}
+
 function UserTransfer() {
   const { user } = useAuth();
   const { data, loading, error, refresh } = useApiData(
@@ -49,6 +63,9 @@ function UserTransfer() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null);
+  // Synchronous guard: state updates are async, so a fast double click could
+  // otherwise send two POSTs before the button is disabled.
+  const submittingRef = useRef(false);
 
   if (loading) {
     return <LoadingState text="Preparing transfer form…" />;
@@ -81,9 +98,18 @@ function UserTransfer() {
   const selectedAccount = accounts.find((a) => String(a.account_id) === values.accountId);
   const selectedDevice = devices.find((d) => String(d.device_id) === values.deviceId);
   const amount = Number(values.amount);
+  const amountError = validateAmount(values.amount);
+  const exceedsBalance =
+    !amountError && selectedAccount?.balance != null && amount > Number(selectedAccount.balance);
+  const missing = [
+    !values.accountId && "an account",
+    !values.merchantId && "a payee",
+    !values.amount && "an amount",
+    !values.location.trim() && "a location",
+    !values.deviceId && "a device",
+  ].filter(Boolean);
   const canSubmit =
-    !referenceError && !error && values.accountId && values.merchantId && values.deviceId &&
-    amount > 0 && values.location.trim() && !submitting;
+    !referenceError && !error && missing.length === 0 && !amountError && !submitting;
 
   function update(event) {
     const { name, value } = event.target;
@@ -92,8 +118,9 @@ function UserTransfer() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || submittingRef.current) return;
 
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
 
@@ -127,6 +154,7 @@ function UserTransfer() {
     } catch (err) {
       setSubmitError(err);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -216,7 +244,15 @@ function UserTransfer() {
                     onChange={update}
                     placeholder="e.g. 2500"
                     required
+                    aria-invalid={Boolean(amountError)}
+                    aria-describedby="amount-help"
                   />
+                  <small id="amount-help" className={amountError ? "field-error" : "field-hint"}>
+                    {amountError ||
+                      (exceedsBalance
+                        ? `More than the ${formatCurrency(selectedAccount.balance)} balance. Allowed here because this demo does not debit balances.`
+                        : "Up to ₹1,00,00,000, two decimals.")}
+                  </small>
                 </div>
 
                 <div className="form-group">
@@ -254,6 +290,10 @@ function UserTransfer() {
               />
 
               <ErrorBanner error={submitError} />
+
+              {!canSubmit && !submitting && missing.length > 0 && (
+                <p className="field-hint" role="status">Select {missing.join(", ")} to continue.</p>
+              )}
 
               <button type="submit" className="primary-action transfer-button" disabled={!canSubmit}>
                 {submitting ? "Submitting to Oracle…" : "Submit transfer"}

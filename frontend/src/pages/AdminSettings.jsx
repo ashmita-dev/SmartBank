@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { CheckCircle2, Database, Lock, PlugZap, Shield, XCircle } from "lucide-react";
+import { useRef, useState } from "react";
+import { CheckCircle2, Clock, Database, Loader2, Lock, PlugZap, Shield, XCircle } from "lucide-react";
 import {
   API_BASE_URL,
   getAccounts,
@@ -14,6 +14,7 @@ import {
   getTransactions,
 } from "../api";
 import { PageHeader } from "../components/ui";
+import { formatDate } from "../utils/format";
 
 // Read-only GET endpoints that can be checked without changing data.
 const ENDPOINT_CHECKS = [
@@ -37,16 +38,36 @@ const RISK_RULES = [
   { rule: "2+ other transactions on the account in the previous 10 minutes", points: "+25" },
   { rule: "1 other transaction in the previous 10 minutes", points: "+15" },
   { rule: "Device never used before by this account", points: "+20" },
-  { rule: "Location differs from the customer’s address city", points: "+20" },
+  { rule: "Location matches none of the customer’s address cities", points: "+20" },
 ];
+
+// Confirmed in the live SMARTBANK_USER schema on 14 Oct 2026 with a read-only
+// DBA_OBJECTS query: every object below exists with STATUS = VALID.
+// The browser cannot query the data dictionary, so this is a dated record.
+const DB_OBJECTS = [
+  { kind: "Tables (12)", names: "CUSTOMER, CUSTOMER_ADDRESS, INDIVIDUAL_CUSTOMER, BUSINESS_CUSTOMER, ACCOUNT, SAVINGS_ACCOUNT, CURRENT_ACCOUNT, MERCHANT, DEVICE, BANK_TRANSACTION, FRAUD_ANALYST, FRAUD_ALERT" },
+  { kind: "Functions", names: "CALCULATE_RISK, CLASSIFY_RISK" },
+  { kind: "Procedures", names: "DETECT_FRAUD, GENERATE_ALERT, REVIEW_HIGH_RISK_ALERTS (explicit cursor, FOR UPDATE)" },
+  { kind: "Triggers", names: "TRG_VALIDATE_TRANSACTION (before insert), TRG_FRAUD_MONITOR (compound)" },
+  { kind: "Package", names: "PKG_FRAUD_DETECTION (spec + body)" },
+  { kind: "Views", names: "V_DAILY_TRANSACTION_ANALYTICS, V_FRAUD_ALERT_SUMMARY, V_HIGH_RISK_TRANSACTIONS, V_CUSTOMER_TRANSACTION_SUMMARY" },
+  { kind: "Indexes", names: "6 lookup indexes on BANK_TRANSACTION and FRAUD_ALERT, plus 6 unique-constraint indexes" },
+];
+
+const STATE_LABEL = { pending: "Not tested", testing: "Testing…", healthy: "Healthy", failed: "Failed" };
 
 function AdminSettings() {
   const [results, setResults] = useState({});
   const [testing, setTesting] = useState(false);
+  const [lastRun, setLastRun] = useState(null);
+  // Prevents overlapping runs even if the button is clicked twice quickly.
+  const runningRef = useRef(false);
 
   async function runChecks() {
+    if (runningRef.current) return;
+    runningRef.current = true;
     setTesting(true);
-    setResults({});
+    setResults(Object.fromEntries(ENDPOINT_CHECKS.map(({ path }) => [path, { state: "testing" }])));
 
     await Promise.all(
       ENDPOINT_CHECKS.map(async ({ path, run }) => {
@@ -54,16 +75,26 @@ function AdminSettings() {
 
         try {
           const body = await run();
-          const rows = Array.isArray(body) ? `${body.length} rows` : "OK";
-          setResults((r) => ({ ...r, [path]: { ok: true, text: `${rows} · ${Math.round(performance.now() - started)} ms` } }));
+          const ms = Math.round(performance.now() - started);
+          const rows = Array.isArray(body) ? `${body.length} row${body.length === 1 ? "" : "s"}` : "1 record";
+          setResults((r) => ({ ...r, [path]: { state: "healthy", code: 200, text: `${rows} · ${ms} ms` } }));
         } catch (err) {
-          setResults((r) => ({ ...r, [path]: { ok: false, text: err.message } }));
+          setResults((r) => ({
+            ...r,
+            [path]: { state: "failed", code: err.status || null, text: err.message },
+          }));
         }
       })
     );
 
+    setLastRun(new Date());
     setTesting(false);
+    runningRef.current = false;
   }
+
+  const values = Object.values(results);
+  const healthy = values.filter((r) => r.state === "healthy").length;
+  const failed = values.filter((r) => r.state === "failed").length;
 
   return (
     <>
@@ -87,25 +118,45 @@ function AdminSettings() {
             </button>
           </div>
 
+          <div className="diag-summary">
+            <div><span>API base URL</span><code>{API_BASE_URL}</code></div>
+            <div>
+              <span>Last tested</span>
+              <strong>{lastRun ? formatDate(lastRun) : "Not yet in this session"}</strong>
+            </div>
+            <div>
+              <span>Result</span>
+              <strong>
+                {testing
+                  ? "Testing…"
+                  : lastRun
+                    ? `${healthy} healthy · ${failed} failed of ${ENDPOINT_CHECKS.length}`
+                    : "—"}
+              </strong>
+            </div>
+          </div>
+
           <p className="muted">
-            Base URL: <code>{API_BASE_URL}</code>. The test only sends read-only GET requests.
+            Each check sends one real, read-only GET request to Oracle through ORDS. Nothing is
+            written. An endpoint is shown healthy only when it answered with HTTP 200 and valid JSON.
           </p>
 
           <ul className="endpoint-list">
             {ENDPOINT_CHECKS.map(({ path }) => {
-              const result = results[path];
+              const result = results[path] || { state: "pending" };
+              const Icon = { pending: Clock, testing: Loader2, healthy: CheckCircle2, failed: XCircle }[result.state];
 
               return (
                 <li key={path}>
-                  <code>{path}</code>
-                  {result ? (
-                    <span className={result.ok ? "ok" : "fail"}>
-                      {result.ok ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
-                      {result.text}
+                  <div className="endpoint-head">
+                    <code>{path}</code>
+                    <span className={`endpoint-state ${result.state}`}>
+                      <Icon size={14} className={result.state === "testing" ? "spin" : undefined} />
+                      {STATE_LABEL[result.state]}
+                      {result.code ? ` · HTTP ${result.code}` : result.state === "failed" ? " · no response" : ""}
                     </span>
-                  ) : (
-                    <span className="idle">{testing ? "…" : "Not tested"}</span>
-                  )}
+                  </div>
+                  {result.text && <span className={`endpoint-detail ${result.state}`}>{result.text}</span>}
                 </li>
               );
             })}
@@ -140,9 +191,19 @@ function AdminSettings() {
             <span className="risk-badge high">HIGH 70–100 · alert + FLAGGED</span>
           </div>
 
+          <ol className="engine-steps">
+            <li>A row is inserted into BANK_TRANSACTION (for example by New Transfer).</li>
+            <li>TRG_VALIDATE_TRANSACTION rejects inactive accounts and amounts over ₹1,00,00,000.</li>
+            <li>TRG_FRAUD_MONITOR calls DETECT_FRAUD, which totals the points above with CALCULATE_RISK (capped at 100) and names the band with CLASSIFY_RISK.</li>
+            <li>MEDIUM or HIGH: GENERATE_ALERT inserts a FRAUD_ALERT with the reasons and assigns the analyst with the fewest open alerts.</li>
+            <li>HIGH only: the transaction status becomes FLAGGED. A MEDIUM alert leaves the payment COMPLETED while it is reviewed.</li>
+          </ol>
+
           <p className="muted">
-            Thresholds are defined in the database (CALCULATE_RISK / CLASSIFY_RISK) and are
-            shown read-only here. Score is capped at 100.
+            The score is a <strong>rule-based point total</strong>, not a probability and not a
+            machine-learning prediction. A high score means “worth a human look”; only an analyst’s
+            decision (Confirm fraud / False positive) records whether fraud actually happened. The
+            rules are copied read-only from CALCULATE_RISK and CLASSIFY_RISK (database/05_functions.sql).
           </p>
         </div>
 
@@ -158,13 +219,19 @@ function AdminSettings() {
           </div>
 
           <div className="system-info-list">
-            <div><span>Database</span><strong>Oracle Database 21c XE (XEPDB1)</strong></div>
-            <div><span>Schema</span><strong>SMARTBANK_USER · 12 tables</strong></div>
-            <div><span>Triggers</span><strong>TRG_VALIDATE_TRANSACTION, TRG_FRAUD_MONITOR</strong></div>
-            <div><span>Package</span><strong>PKG_FRAUD_DETECTION</strong></div>
-            <div><span>Cursor workflow</span><strong>REVIEW_HIGH_RISK_ALERTS</strong></div>
-            <div><span>API layer</span><strong>Oracle REST Data Services</strong></div>
+            <div><span>Database</span><strong>Oracle Database 21c XE (XEPDB1), schema SMARTBANK_USER</strong></div>
+            <div><span>API layer</span><strong>Oracle REST Data Services 26.2, module smartbank.api</strong></div>
+            {DB_OBJECTS.map(({ kind, names }) => (
+              <div key={kind}><span>{kind}</span><strong>{names}</strong></div>
+            ))}
           </div>
+
+          <p className="muted">
+            Verified in the live schema on 14 Oct 2026 with a read-only data-dictionary query: every
+            object above exists and is VALID. The browser cannot read the data dictionary, so this is a
+            dated record; re-check with <code>SELECT object_type, object_name, status FROM user_objects</code>{" "}
+            after changing the database.
+          </p>
         </div>
 
         <div className="panel settings-panel span-2">
@@ -179,9 +246,13 @@ function AdminSettings() {
           </div>
 
           <ul className="limits-list">
-            <li>Sign-in uses two demo accounts checked in the browser. It is not secure authentication.</li>
-            <li>The ORDS module is published without OAuth, so anyone who can reach the API can call it. Keep ORDS on localhost.</li>
-            <li>Role separation (customer vs analyst) is enforced only in the user interface.</li>
+            <li><strong>Demo sign-in.</strong> The two logins are checked by JavaScript in the browser. Anyone who reads the page source can see them, so they are not real security.</li>
+            <li><strong>Roles are a screen layout, not a permission.</strong> Hiding analyst pages from the customer happens in React only. The API itself does not know who is calling.</li>
+            <li><strong>The API has no login.</strong> The ORDS module is published without OAuth2, so anyone who can reach port 8080 could read and change data. That is why Oracle and ORDS stay on this computer (localhost) and are never exposed to the internet.</li>
+            <li><strong>Customer isolation is a filter.</strong> The customer portal only requests customer #1’s records, but the server would return another customer’s data if asked directly.</li>
+            <li><strong>Transfers do not move money.</strong> New Transfer records a transaction and screens it for fraud; account balances are not debited or credited.</li>
+            <li><strong>Rule-based detection.</strong> A risk score points to patterns worth reviewing. It does not prove fraud, and a low score does not prove a payment is safe.</li>
+            <li><strong>For production</strong> the API would need OAuth2 or another identity provider, server-side role checks in every handler, and HTTPS behind a secured gateway.</li>
           </ul>
         </div>
       </section>
