@@ -1,294 +1,168 @@
-import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
+  AlertTriangle,
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
-  CreditCard,
-  LogOut,
-  RefreshCw,
-  ShieldCheck,
+  ChevronRight,
   Wallet,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { getKPIs, getTransactions } from "../api";
+import {
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+  Notice,
+  PageHeader,
+  RefreshButton,
+  StatusBadge,
+  SummaryCard,
+} from "../components/ui";
 import { useAuth } from "../context/AuthContext";
+import useApiData from "../hooks/useApiData";
+import { loadCustomerData } from "../utils/customerData";
+import { formatCurrency, formatDate, transactionStatus } from "../utils/format";
+
+const INCOMING_TYPES = ["CREDIT", "DEPOSIT"];
 
 function UserDashboard() {
-  const navigate = useNavigate();
-  const { user, logout } = useAuth();
-
-  const [kpis, setKpis] = useState(null);
-  const [transactions, setTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  async function loadDashboard(showRefresh = false) {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      const [kpiData, transactionData] = await Promise.all([
-        getKPIs(),
-        getTransactions(),
-      ]);
-
-      setKpis(kpiData);
-      setTransactions(
-        Array.isArray(transactionData)
-          ? transactionData
-          : transactionData?.items || []
-      );
-    } catch {
-      setKpis(null);
-      setTransactions([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  const recentTransactions = useMemo(
-    () => transactions.slice(0, 5),
-    [transactions]
+  const { user } = useAuth();
+  const { data, loading, refreshing, error, refresh } = useApiData(
+    () => loadCustomerData(user.customerId),
+    [user.customerId]
   );
 
-  const totalActivity = transactions.length;
-
-  const flaggedActivity = transactions.filter(
-    (transaction) =>
-      String(transaction.status || "").toUpperCase() === "FLAGGED"
-  ).length;
-
-  function formatCurrency(value) {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 2,
-    }).format(Number(value || 0));
-  }
-
-  function formatDate(value) {
-    if (!value) return "—";
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-
-    return date.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
-  function handleLogout() {
-    logout();
-    navigate("/login", { replace: true });
-  }
-
   if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <span>Loading your SmartBank dashboard...</span>
-      </div>
-    );
+    return <LoadingState text="Loading your SmartBank dashboard…" />;
   }
+
+  const accounts = data?.accounts || [];
+  const transactions = data?.transactions || [];
+  const balancesKnown = accounts.length > 0 && accounts.every((a) => a.balance != null);
+  const totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0);
+  const flagged = transactions.filter((t) => transactionStatus(t) === "FLAGGED");
 
   return (
     <>
-      <section className="page-header">
-        <div className="section-label">
-          PERSONAL BANKING
-        </div>
+      <PageHeader
+        eyebrow="PERSONAL BANKING"
+        title={`Welcome back, ${user.name.split(" ")[0]}`}
+        description="Your accounts and recent activity, read live from the SmartBank Oracle database."
+        actions={
+          <>
+            <RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh dashboard" />
+            <Link className="primary-action" to="/user/transfer">
+              <ArrowLeftRight size={16} />
+              New transfer
+            </Link>
+          </>
+        }
+      />
 
-        <h1>
-          Welcome back
-          {user?.name ? `, ${user.name.split(" ")[0]}` : ""}
-        </h1>
+      <ErrorBanner error={error} onRetry={refresh} />
 
-        <p>
-          Monitor your account activity and keep track of
-          your SmartBank transactions.
-        </p>
-      </section>
+      {flagged.length > 0 && (
+        <Notice tone="warning">
+          {flagged.length} of your transactions {flagged.length === 1 ? "was" : "were"} flagged as
+          high risk by the fraud engine and {flagged.length === 1 ? "is" : "are"} under analyst review.
+        </Notice>
+      )}
 
       <section className="alert-summary-grid">
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Wallet size={20} />
-          </div>
-
-          <div>
-            <span>Available Accounts</span>
-            <strong>
-              {kpis?.total_accounts ?? "—"}
-            </strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Activity size={20} />
-          </div>
-
-          <div>
-            <span>Transaction Activity</span>
-            <strong>{totalActivity}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <ShieldCheck size={20} />
-          </div>
-
-          <div>
-            <span>Flagged Activity</span>
-            <strong>{flaggedActivity}</strong>
-          </div>
-        </div>
+        <SummaryCard
+          icon={<Wallet size={20} />}
+          label="Total balance"
+          value={balancesKnown ? formatCurrency(totalBalance) : "—"}
+        />
+        <SummaryCard icon={<Activity size={20} />} label="Transactions" value={transactions.length} />
+        <SummaryCard
+          icon={<AlertTriangle size={20} />}
+          label="Flagged for review"
+          value={flagged.length}
+          tone={flagged.length ? "danger" : ""}
+        />
       </section>
 
-      <section className="toolbar">
-        <div>
-          <div className="section-label">
-            RECENT ACTIVITY
-          </div>
-
-          <div className="user-toolbar-info">
-            <strong>{user?.name || "SmartBank Customer"}</strong>
-            <span>Personal Banking</span>
-          </div>
-        </div>
-
-        <div className="toolbar-actions">
-          <button
-            className="refresh-button"
-            onClick={() => loadDashboard(true)}
-            disabled={refreshing}
-            title="Refresh dashboard"
-            aria-label="Refresh dashboard"
-          >
-            <RefreshCw
-              size={18}
-              className={refreshing ? "spin" : ""}
-            />
-          </button>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-            title="Logout"
-            aria-label="Logout"
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
-      </section>
-
-      <section className="panel full-panel">
-        <div className="panel-header">
-          <div>
-            <div className="section-label">
-              TRANSACTIONS
+      <section className="content-grid">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-label">MY ACCOUNTS</div>
+              <h3>Accounts</h3>
             </div>
-
-            <h3>Recent Activity</h3>
+            <Link className="text-button" to="/user/accounts">
+              Details <ChevronRight size={15} />
+            </Link>
           </div>
 
-          <CreditCard size={20} />
+          {accounts.length ? (
+            <div className="mini-list">
+              {accounts.map((account) => (
+                <div className="mini-row" key={account.account_id}>
+                  <div className="transaction-icon">
+                    <Wallet size={16} />
+                  </div>
+                  <div className="mini-main">
+                    <strong>{account.account_type ? `${account.account_type} account` : "Account"}</strong>
+                    <span>{account.account_number}</span>
+                  </div>
+                  <div className="mini-side">
+                    <strong>{account.balance != null ? formatCurrency(account.balance) : "—"}</strong>
+                    {account.status && <StatusBadge status={account.status} />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState text="No accounts found for this customer." />
+          )}
+
+          {data?.accountsError && (
+            <p className="muted small-note">
+              Balances unavailable: {data.accountsError.message}
+            </p>
+          )}
         </div>
 
-        {recentTransactions.length ? (
-          <div className="transaction-table">
-            <div className="transaction-head">
-              <span>Transaction</span>
-              <span>Merchant</span>
-              <span>Amount</span>
-              <span>Date</span>
-              <span>Status</span>
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-label">RECENT ACTIVITY</div>
+              <h3>Latest transactions</h3>
             </div>
+            <Link className="text-button" to="/user/transactions">
+              View all <ChevronRight size={15} />
+            </Link>
+          </div>
 
-            {recentTransactions.map((transaction) => {
-              const status = String(
-                transaction.status || "COMPLETED"
-              ).toLowerCase();
+          {transactions.length ? (
+            <div className="mini-list">
+              {transactions.slice(0, 6).map((t) => {
+                const incoming = INCOMING_TYPES.includes(String(t.transaction_type).toUpperCase());
 
-              return (
-                <div
-                  className="transaction-row"
-                  key={transaction.transaction_id}
-                >
-                  <div className="transaction-id">
-                    <div className="transaction-icon">
-                      {String(
-                        transaction.transaction_type || ""
-                      ).toUpperCase() === "CREDIT" ? (
-                        <ArrowDownLeft size={16} />
-                      ) : (
-                        <ArrowUpRight size={16} />
-                      )}
+                return (
+                  <div className="mini-row" key={t.transaction_id}>
+                    <div className={`transaction-icon ${incoming ? "in" : "out"}`}>
+                      {incoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
                     </div>
-
-                    <div>
-                      <strong>
-                        #{transaction.transaction_id}
-                      </strong>
-
+                    <div className="mini-main">
+                      <strong>{t.merchant_name || t.transaction_type}</strong>
                       <span>
-                        {transaction.transaction_type ||
-                          "TRANSACTION"}
+                        {t.transaction_type} · {t.location || "Unknown"} · {formatDate(t.transaction_time, { withTime: false })}
                       </span>
                     </div>
+                    <div className="mini-side">
+                      <strong>{formatCurrency(t.amount)}</strong>
+                      <StatusBadge status={transactionStatus(t)} />
+                    </div>
                   </div>
-
-                  <div className="merchant-cell">
-                    <strong>
-                      {transaction.merchant_name ||
-                        transaction.merchant ||
-                        "Unknown Merchant"}
-                    </strong>
-
-                    <span>
-                      {transaction.category ||
-                        transaction.merchant_category ||
-                        "General"}
-                    </span>
-                  </div>
-
-                  <strong className="amount-cell">
-                    {formatCurrency(transaction.amount)}
-                  </strong>
-
-                  <span>
-                    {formatDate(transaction.transaction_time)}
-                  </span>
-
-                  <span
-                    className={`status-badge ${status}`}
-                  >
-                    {transaction.status || "COMPLETED"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="empty-state">
-            <Activity size={20} />
-            <span>No transaction activity available.</span>
-          </div>
-        )}
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState text="No transactions yet." />
+          )}
+        </div>
       </section>
     </>
   );

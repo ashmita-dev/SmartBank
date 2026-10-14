@@ -1,167 +1,121 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { CreditCard, Eye, EyeOff, Landmark, Wallet } from "lucide-react";
 import {
-  ArrowUpRight,
-  CreditCard,
-  Eye,
-  EyeOff,
-  Wallet,
-} from "lucide-react";
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+  PageHeader,
+  RefreshButton,
+  StatusBadge,
+  SummaryCard,
+} from "../components/ui";
+import { useAuth } from "../context/AuthContext";
+import useApiData from "../hooks/useApiData";
+import { loadCustomerData } from "../utils/customerData";
+import { formatCurrency, formatDate } from "../utils/format";
 
 function UserAccounts() {
+  const { user } = useAuth();
+  const { data, loading, refreshing, error, refresh } = useApiData(
+    () => loadCustomerData(user.customerId),
+    [user.customerId]
+  );
   const [showBalances, setShowBalances] = useState(true);
 
-  const accounts = [
-    {
-      id: "SB-10001",
-      type: "Savings Account",
-      number: "**** **** 4821",
-      balance: 125000,
-      status: "ACTIVE",
-      interest: "6.50%",
-    },
-    {
-      id: "CA-10002",
-      type: "Current Account",
-      number: "**** **** 7394",
-      balance: 84250,
-      status: "ACTIVE",
-      interest: "0.00%",
-    },
-  ];
-
-  const totalBalance = accounts.reduce(
-    (total, account) => total + account.balance,
-    0
-  );
-
-  function formatCurrency(value) {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 2,
-    }).format(value);
+  if (loading) {
+    return <LoadingState text="Loading your accounts…" />;
   }
 
-  useEffect(() => {
-    document.title = "SmartBank | Accounts";
-  }, []);
+  const accounts = data?.accounts || [];
+  const transactions = data?.transactions || [];
+  const balancesKnown = accounts.length > 0 && accounts.every((a) => a.balance != null);
+  const total = accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0);
+  const hide = (value) => (showBalances ? value : "••••••");
 
   return (
     <>
-      <section className="page-header">
-        <div className="section-label">MY BANKING</div>
+      <PageHeader
+        eyebrow="MY BANKING"
+        title="My Accounts"
+        description="ACCOUNT rows for your customer record, with savings and current account details from their subtype tables."
+        actions={
+          <>
+            <button
+              type="button"
+              className="refresh-button"
+              onClick={() => setShowBalances((v) => !v)}
+              aria-pressed={!showBalances}
+              aria-label={showBalances ? "Hide balances" : "Show balances"}
+              title={showBalances ? "Hide balances" : "Show balances"}
+            >
+              {showBalances ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+            <RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh accounts" />
+          </>
+        }
+      />
 
-        <h1>My Accounts</h1>
-
-        <p>
-          View your SmartBank accounts, balances, and account
-          information in one place.
-        </p>
-      </section>
+      <ErrorBanner error={error} onRetry={refresh} />
+      {data?.accountsError && (
+        <ErrorBanner
+          error={{
+            message: `Account balances and types are unavailable: ${data.accountsError.message} Showing account numbers found in your transactions instead.`,
+          }}
+        />
+      )}
 
       <section className="alert-summary-grid">
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Wallet size={20} />
-          </div>
-
-          <div>
-            <span>Total Balance</span>
-
-            <strong>
-              {showBalances
-                ? formatCurrency(totalBalance)
-                : "••••••••"}
-            </strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <CreditCard size={20} />
-          </div>
-
-          <div>
-            <span>Active Accounts</span>
-            <strong>{accounts.length}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <ArrowUpRight size={20} />
-          </div>
-
-          <div>
-            <span>Account Status</span>
-            <strong>ACTIVE</strong>
-          </div>
-        </div>
+        <SummaryCard icon={<Wallet size={20} />} label="Total balance" value={balancesKnown ? hide(formatCurrency(total)) : "—"} />
+        <SummaryCard icon={<CreditCard size={20} />} label="Accounts" value={accounts.length} />
+        <SummaryCard icon={<Landmark size={20} />} label="Transactions on record" value={transactions.length} />
       </section>
 
-      <section className="toolbar">
-        <div>
-          <div className="section-label">
-            ACCOUNT PORTFOLIO
-          </div>
-        </div>
+      {accounts.length ? (
+        <section className="account-grid">
+          {accounts.map((account) => {
+            const count = transactions.filter((t) => Number(t.account_id) === Number(account.account_id)).length;
 
-        <button
-          className="refresh-button"
-          onClick={() =>
-            setShowBalances((current) => !current)
-          }
-          title={
-            showBalances
-              ? "Hide balances"
-              : "Show balances"
-          }
-        >
-          {showBalances ? (
-            <EyeOff size={18} />
-          ) : (
-            <Eye size={18} />
-          )}
-        </button>
-      </section>
+            return (
+              <article className="panel account-card" key={account.account_id}>
+                <div className="account-card-top">
+                  <div>
+                    <span className="section-label">
+                      {account.account_type ? `${account.account_type} ACCOUNT` : "ACCOUNT"}
+                    </span>
+                    <h3>{account.account_number}</h3>
+                  </div>
+                  {account.status && <StatusBadge status={account.status} />}
+                </div>
 
-      <section className="workload-grid">
-        {accounts.map((account) => (
-          <div
-            className="panel analyst-card"
-            key={account.id}
-          >
-            <div className="analyst-avatar">
-              <Wallet size={20} />
-            </div>
+                <div className="account-balance">
+                  <span>Balance</span>
+                  <strong>{account.balance != null ? hide(formatCurrency(account.balance)) : "—"}</strong>
+                </div>
 
-            <div className="analyst-info">
-              <h3>{account.type}</h3>
-
-              <span>{account.number}</span>
-
-              <small>
-                Account ID: {account.id}
-              </small>
-            </div>
-
-            <div className="analyst-number">
-              <strong>
-                {showBalances
-                  ? formatCurrency(account.balance)
-                  : "••••••"}
-              </strong>
-
-              <span>{account.status}</span>
-            </div>
-
-            <div className="account-meta">
-              <span>Interest Rate</span>
-              <strong>{account.interest}</strong>
-            </div>
-          </div>
-        ))}
-      </section>
+                <dl className="account-meta-list">
+                  {account.interest_rate != null && (
+                    <div><dt>Interest rate</dt><dd>{account.interest_rate}%</dd></div>
+                  )}
+                  {account.minimum_balance != null && (
+                    <div><dt>Minimum balance</dt><dd>{formatCurrency(account.minimum_balance)}</dd></div>
+                  )}
+                  {account.overdraft_limit != null && (
+                    <div><dt>Overdraft limit</dt><dd>{formatCurrency(account.overdraft_limit)}</dd></div>
+                  )}
+                  {account.opened_date && (
+                    <div><dt>Opened</dt><dd>{formatDate(account.opened_date, { withTime: false })}</dd></div>
+                  )}
+                  <div><dt>Transactions</dt><dd>{count}</dd></div>
+                </dl>
+              </article>
+            );
+          })}
+        </section>
+      ) : (
+        <section className="panel full-panel">
+          <EmptyState text="No accounts found for this customer." />
+        </section>
+      )}
     </>
   );
 }

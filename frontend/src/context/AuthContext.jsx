@@ -2,12 +2,17 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const AuthContext = createContext(null);
 
+// Demonstration accounts only. Authentication happens in the browser and is
+// NOT secure: the ORDS API itself is unauthenticated. The customer login is
+// linked to CUSTOMER_ID 1 in the seed data so the portal shows that
+// customer's real accounts and transactions.
 const DEMO_USERS = {
   "user@smartbank.com": {
     email: "user@smartbank.com",
     password: "user123",
     role: "user",
-    name: "SmartBank Customer",
+    name: "Aarav Sharma",
+    customerId: 1,
   },
   "admin@smartbank.com": {
     email: "admin@smartbank.com",
@@ -20,18 +25,32 @@ const DEMO_USERS = {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
-      const savedUser = localStorage.getItem("smartbank_user");
-      return savedUser ? JSON.parse(savedUser) : null;
+      const savedUser = JSON.parse(localStorage.getItem("smartbank_user"));
+      const account = DEMO_USERS[savedUser?.email];
+
+      if (!account) return null;
+
+      // Rebuild from the demo table so older saved sessions pick up new fields.
+      return {
+        email: account.email,
+        role: account.role,
+        name: account.name,
+        customerId: account.customerId ?? null,
+      };
     } catch {
       return null;
     }
   });
 
   useEffect(() => {
-    if (user) {
-      localStorage.setItem("smartbank_user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("smartbank_user");
+    try {
+      if (user) {
+        localStorage.setItem("smartbank_user", JSON.stringify(user));
+      } else {
+        localStorage.removeItem("smartbank_user");
+      }
+    } catch {
+      // Storage unavailable (private mode); the session lasts until reload.
     }
   }, [user]);
 
@@ -50,6 +69,7 @@ export function AuthProvider({ children }) {
       email: account.email,
       role: account.role,
       name: account.name,
+      customerId: account.customerId ?? null,
     };
 
     setUser(authenticatedUser);
@@ -81,6 +101,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
 

@@ -1,411 +1,200 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Bell, ChevronRight, Search, Shield, ShieldCheck, X } from "lucide-react";
+import { getAlerts } from "../api";
+import AlertModal from "../components/AlertModal";
 import {
-  AlertTriangle,
-  Bell,
-  CheckCircle2,
-  ChevronRight,
-  Database,
-  Shield,
-  X,
-} from "lucide-react";
-import { getAlerts, updateAlert } from "../api";
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+  Notice,
+  PageHeader,
+  RefreshButton,
+  RiskBadge,
+  StatusBadge,
+  SummaryCard,
+} from "../components/ui";
+import useApiData from "../hooks/useApiData";
+import { formatCurrency, formatDate, formatLabel, matchesSearch } from "../utils/format";
 
-function riskClass(level) {
-  return String(level || "LOW").toLowerCase();
-}
+const RISK_LEVELS = ["ALL", "HIGH", "MEDIUM"];
+const STATUSES = ["ACTIVE", "ALL", "OPEN", "INVESTIGATING", "CONFIRMED_FRAUD", "FALSE_POSITIVE", "CLOSED"];
 
-function formatDate(value) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function isActive(alert) {
+  return ["OPEN", "INVESTIGATING"].includes(String(alert.status).toUpperCase());
 }
 
 function AdminAlerts() {
-  const [alerts, setAlerts] = useState([]);
-  const [filter, setFilter] = useState("ALL");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [selectedAlert, setSelectedAlert] = useState(null);
-  const [updating, setUpdating] = useState(false);
+  const { data, setData, loading, refreshing, error, refresh } = useApiData(() => getAlerts());
+  const [riskFilter, setRiskFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [notice, setNotice] = useState(null);
 
-  async function loadAlerts(showRefresh = false) {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const alerts = useMemo(() => data || [], [data]);
 
-      setError("");
-
-      const data = await getAlerts();
-
-      setAlerts(
-        Array.isArray(data)
-          ? data
-          : data?.items || []
-      );
-    } catch (err) {
-      setError(err?.message || "Unable to load fraud alerts.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    loadAlerts();
-  }, []);
-
-  const filteredAlerts = useMemo(() => {
-    if (filter === "ALL") {
-      return alerts;
-    }
-
-    return alerts.filter(
-      (alert) =>
-        String(alert.risk_level || "").toUpperCase() === filter
-    );
-  }, [alerts, filter]);
-
-  const openAlerts = useMemo(
+  const filtered = useMemo(
     () =>
       alerts.filter((alert) => {
-        const status = String(alert.status || "").toUpperCase();
+        const status = String(alert.status).toUpperCase();
 
-        return status === "OPEN" || status === "INVESTIGATING";
+        if (riskFilter !== "ALL" && String(alert.risk_level).toUpperCase() !== riskFilter) return false;
+        if (statusFilter === "ACTIVE" && !isActive(alert)) return false;
+        if (!["ACTIVE", "ALL"].includes(statusFilter) && status !== statusFilter) return false;
+
+        return matchesSearch(
+          [alert.alert_id, alert.transaction_id, alert.reason, alert.analyst_name, alert.location],
+          search
+        );
       }),
-    [alerts]
+    [alerts, riskFilter, statusFilter, search]
   );
 
-  const highRiskAlerts = useMemo(
-    () =>
-      alerts.filter(
-        (alert) =>
-          String(alert.risk_level || "").toUpperCase() === "HIGH"
-      ),
-    [alerts]
-  );
+  const activeCount = alerts.filter(isActive).length;
+  const highCount = alerts.filter((a) => String(a.risk_level).toUpperCase() === "HIGH").length;
+  const confirmedCount = alerts.filter((a) => String(a.status).toUpperCase() === "CONFIRMED_FRAUD").length;
 
-  async function handleStatusUpdate(alertId, status) {
-    try {
-      setUpdating(true);
-      setError("");
-
-      await updateAlert(alertId, status);
-
-      await loadAlerts(true);
-
-      setSelectedAlert(null);
-    } catch (err) {
-      setError(err?.message || "Unable to update alert.");
-    } finally {
-      setUpdating(false);
-    }
+  function handleUpdated(alertId, status) {
+    setData((current) =>
+      current.map((alert) => (alert.alert_id === alertId ? { ...alert, status } : alert))
+    );
+    setSelected(null);
+    setNotice(`Alert #${alertId} saved as ${formatLabel(status)} in FRAUD_ALERT.`);
   }
 
   if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <span>Loading fraud alerts...</span>
-      </div>
-    );
+    return <LoadingState text="Loading fraud alerts…" />;
   }
 
   return (
     <>
-      <section className="page-header">
-        <div className="section-label">FRAUD OPERATIONS</div>
-        <h1>Fraud Alert Center</h1>
-        <p>
-          Review suspicious transactions, investigate risk signals,
-          and manage fraud alerts from the SmartBank database.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="FRAUD OPERATIONS"
+        title="Fraud Alert Center"
+        description="Alerts raised by DETECT_FRAUD for MEDIUM and HIGH risk transactions. Open an alert to review its evidence and record a decision."
+        actions={<RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh alerts" />}
+      />
 
-      {error && (
-        <div className="error-banner">
-          <AlertTriangle size={18} />
-          <span>{error}</span>
-          <button onClick={() => loadAlerts(true)}>
-            Retry
-          </button>
-        </div>
+      <ErrorBanner error={error} onRetry={refresh} />
+
+      {notice && (
+        <Notice tone="success" onDismiss={() => setNotice(null)}>
+          {notice}
+        </Notice>
       )}
 
-      <section className="alert-summary-grid">
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Bell size={20} />
-          </div>
-
-          <div>
-            <span>Open Alerts</span>
-            <strong>{openAlerts.length}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <AlertTriangle size={20} />
-          </div>
-
-          <div>
-            <span>High Risk</span>
-            <strong>{highRiskAlerts.length}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Shield size={20} />
-          </div>
-
-          <div>
-            <span>Total Alerts</span>
-            <strong>{alerts.length}</strong>
-          </div>
-        </div>
+      <section className="alert-summary-grid four">
+        <SummaryCard icon={<Bell size={20} />} label="Awaiting review" value={activeCount} tone="warning" />
+        <SummaryCard icon={<AlertTriangle size={20} />} label="High risk" value={highCount} tone="danger" />
+        <SummaryCard icon={<ShieldCheck size={20} />} label="Confirmed fraud" value={confirmedCount} />
+        <SummaryCard icon={<Shield size={20} />} label="Total alerts" value={alerts.length} />
       </section>
 
-      <section className="toolbar">
-        <div className="filter-group">
-          {["ALL", "HIGH", "MEDIUM", "LOW"].map((level) => (
-            <button
-              key={level}
-              className={
-                filter === level
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() => setFilter(level)}
-            >
-              {level}
+      <section className="toolbar toolbar-stack">
+        <label className="search-box">
+          <Search size={18} aria-hidden="true" />
+          <span className="sr-only">Search alerts</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search reason, analyst, location, alert or transaction ID…"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
+              <X size={16} />
             </button>
-          ))}
-        </div>
+          )}
+        </label>
 
-        <div className="toolbar-right">
-          <span className="result-count">
-            {filteredAlerts.length} alerts
+        <div className="toolbar-filters">
+          <div className="filter-group" role="group" aria-label="Filter by risk level">
+            {RISK_LEVELS.map((level) => (
+              <button
+                type="button"
+                key={level}
+                className={riskFilter === level ? "filter active" : "filter"}
+                aria-pressed={riskFilter === level}
+                onClick={() => setRiskFilter(level)}
+              >
+                {level === "ALL" ? "ALL RISK" : level}
+              </button>
+            ))}
+          </div>
+
+          <label className="select-control">
+            <span>Status</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              {STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status === "ACTIVE"
+                    ? "Awaiting review (open + investigating)"
+                    : status === "ALL"
+                    ? "All statuses"
+                    : formatLabel(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <span className="result-count" aria-live="polite">
+            {filtered.length} of {alerts.length}
           </span>
-
-          <button
-            className="refresh-button"
-            onClick={() => loadAlerts(true)}
-            disabled={refreshing}
-            title="Refresh alerts"
-          >
-            <span className={refreshing ? "spin" : ""}>
-              ↻
-            </span>
-          </button>
         </div>
       </section>
 
       <section className="panel full-panel">
-        <div className="alert-table">
-          <div className="alert-table-head">
-            <span>Alert</span>
-            <span>Risk</span>
-            <span>Score</span>
-            <span>Reason</span>
-            <span>Status</span>
-            <span />
+        {filtered.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Alert</th>
+                  <th scope="col">Risk</th>
+                  <th scope="col" className="num">Score</th>
+                  <th scope="col">Reasons</th>
+                  <th scope="col" className="num">Amount</th>
+                  <th scope="col">Analyst</th>
+                  <th scope="col">Status</th>
+                  <th scope="col"><span className="sr-only">Open</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((alert) => (
+                  <tr
+                    key={alert.alert_id}
+                    tabIndex={0}
+                    onClick={() => setSelected(alert)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelected(alert);
+                      }
+                    }}
+                  >
+                    <td>
+                      <strong>#{alert.alert_id}</strong>
+                      <small>Txn #{alert.transaction_id} · {formatDate(alert.created_at, { withTime: false })}</small>
+                    </td>
+                    <td><RiskBadge level={alert.risk_level} /></td>
+                    <td className="num"><strong>{alert.risk_score}</strong></td>
+                    <td className="reason-cell">{alert.reason || "—"}</td>
+                    <td className="num">{formatCurrency(alert.amount)}</td>
+                    <td><small>{alert.analyst_name || "Unassigned"}</small></td>
+                    <td><StatusBadge status={alert.status} /></td>
+                    <td><ChevronRight size={16} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          {filteredAlerts.length ? (
-            filteredAlerts.map((alert) => (
-              <button
-                className="alert-table-row"
-                key={alert.alert_id}
-                onClick={() => setSelectedAlert(alert)}
-              >
-                <span className="alert-id">
-                  #{alert.alert_id}
-                </span>
-
-                <span>
-                  <span
-                    className={`risk-badge ${riskClass(
-                      alert.risk_level
-                    )}`}
-                  >
-                    {alert.risk_level || "LOW"}
-                  </span>
-                </span>
-
-                <span className="score">
-                  {alert.risk_score ?? 0}/100
-                </span>
-
-                <span className="reason-cell">
-                  {alert.reason || "Suspicious activity detected"}
-                </span>
-
-                <span>
-                  <span
-                    className={`status-badge ${String(
-                      alert.status || "OPEN"
-                    ).toLowerCase()}`}
-                  >
-                    {alert.status || "OPEN"}
-                  </span>
-                </span>
-
-                <span>
-                  <ChevronRight size={17} />
-                </span>
-              </button>
-            ))
-          ) : (
-            <div className="empty-state">
-              <Database size={20} />
-              <span>No alerts match this filter.</span>
-            </div>
-          )}
-        </div>
+        ) : (
+          <EmptyState text={alerts.length ? "No alerts match these filters." : "No fraud alerts in the database."} />
+        )}
       </section>
 
-      {selectedAlert && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setSelectedAlert(null)}
-        >
-          <div
-            className="alert-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <div>
-                <div className="section-label">
-                  FRAUD ALERT
-                </div>
-
-                <h2>
-                  Alert #{selectedAlert.alert_id}
-                </h2>
-              </div>
-
-              <button
-                className="modal-close"
-                onClick={() => setSelectedAlert(null)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="modal-risk">
-              <div>
-                <span className="modal-label">
-                  Risk level
-                </span>
-
-                <span
-                  className={`risk-badge ${riskClass(
-                    selectedAlert.risk_level
-                  )}`}
-                >
-                  {selectedAlert.risk_level || "LOW"}
-                </span>
-              </div>
-
-              <div>
-                <span className="modal-label">
-                  Risk score
-                </span>
-
-                <strong className="large-score">
-                  {selectedAlert.risk_score ?? 0}
-                  <small>/100</small>
-                </strong>
-              </div>
-            </div>
-
-            <div className="modal-details">
-              <div>
-                <span>Transaction</span>
-                <strong>
-                  #{selectedAlert.transaction_id ?? "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Status</span>
-                <strong>
-                  {selectedAlert.status || "OPEN"}
-                </strong>
-              </div>
-
-              <div className="full-detail">
-                <span>Fraud reasoning</span>
-                <strong>
-                  {selectedAlert.reason ||
-                    "Suspicious transaction detected"}
-                </strong>
-              </div>
-
-              <div className="full-detail">
-                <span>Created</span>
-                <strong>
-                  {formatDate(selectedAlert.created_at)}
-                </strong>
-              </div>
-
-              {selectedAlert.analyst_name && (
-                <div className="full-detail">
-                  <span>Assigned Analyst</span>
-                  <strong>
-                    {selectedAlert.analyst_name}
-                  </strong>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-actions">
-              <button
-                className="secondary-action"
-                disabled={updating}
-                onClick={() =>
-                  handleStatusUpdate(
-                    selectedAlert.alert_id,
-                    "FALSE_POSITIVE"
-                  )
-                }
-              >
-                Mark False Positive
-              </button>
-
-              <button
-                className="primary-action"
-                disabled={updating}
-                onClick={() =>
-                  handleStatusUpdate(
-                    selectedAlert.alert_id,
-                    "CONFIRMED_FRAUD"
-                  )
-                }
-              >
-                <CheckCircle2 size={17} />
-                Confirm Fraud
-              </button>
-            </div>
-          </div>
-        </div>
+      {selected && (
+        <AlertModal alert={selected} onClose={() => setSelected(null)} onUpdated={handleUpdated} />
       )}
     </>
   );

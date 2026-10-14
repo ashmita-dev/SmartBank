@@ -1,466 +1,197 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  CircleDollarSign,
-  Database,
-  RefreshCw,
-  Search,
-  Smartphone,
-  X,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Activity, AlertTriangle, CircleDollarSign, Search, Smartphone, X } from "lucide-react";
 import { getTransactions } from "../api";
+import TransactionDialog from "../components/TransactionDialog";
+import {
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+  PageHeader,
+  RefreshButton,
+  StatusBadge,
+  SummaryCard,
+} from "../components/ui";
+import useApiData from "../hooks/useApiData";
+import { formatCurrency, formatDate, matchesSearch, transactionStatus } from "../utils/format";
 
-function formatCurrency(value, currency = "INR") {
-  const amount = Number(value || 0);
-
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const STATUSES = ["ALL", "COMPLETED", "FLAGGED", "PENDING", "REJECTED"];
+const TYPES = ["ALL", "DEBIT", "CREDIT", "TRANSFER", "WITHDRAWAL", "DEPOSIT"];
 
 function AdminTransactions() {
-  const [transactions, setTransactions] = useState([]);
+  const { data, loading, refreshing, error, refresh } = useApiData(() => getTransactions());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [selectedTransaction, setSelectedTransaction] =
-    useState(null);
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [selected, setSelected] = useState(null);
 
-  async function loadTransactions(showRefresh = false) {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const transactions = useMemo(() => data || [], [data]);
 
-      setError("");
+  const filtered = useMemo(
+    () =>
+      transactions.filter((t) => {
+        if (statusFilter !== "ALL" && transactionStatus(t) !== statusFilter) return false;
+        if (typeFilter !== "ALL" && String(t.transaction_type).toUpperCase() !== typeFilter) return false;
 
-      const data = await getTransactions();
+        return matchesSearch(
+          [
+            t.transaction_id,
+            t.customer_name,
+            t.account_number,
+            t.merchant_name,
+            t.merchant_category,
+            t.location,
+            t.device_identifier,
+            t.device_type,
+          ],
+          search
+        );
+      }),
+    [transactions, search, statusFilter, typeFilter]
+  );
 
-      setTransactions(
-        Array.isArray(data)
-          ? data
-          : data?.items || []
-      );
-    } catch (err) {
-      setError(
-        err?.message || "Unable to load transactions."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    loadTransactions();
-  }, []);
-
-  const filteredTransactions = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return transactions.filter((transaction) => {
-      const status = String(
-        transaction.status || ""
-      ).toUpperCase();
-
-      const matchesStatus =
-        statusFilter === "ALL" ||
-        status === statusFilter;
-
-      if (!matchesStatus) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      const values = [
-        transaction.transaction_id,
-        transaction.merchant_name,
-        transaction.merchant,
-        transaction.location,
-        transaction.status,
-        transaction.transaction_type,
-        transaction.currency,
-        transaction.device_identifier,
-        transaction.category,
-        transaction.merchant_category,
-      ];
-
-      return values.some((value) =>
-        String(value ?? "")
-          .toLowerCase()
-          .includes(query)
-      );
-    });
-  }, [transactions, search, statusFilter]);
-
-  const flaggedCount = transactions.filter(
-    (transaction) =>
-      String(transaction.status || "").toUpperCase() ===
-      "FLAGGED"
-  ).length;
-
-  const completedCount = transactions.filter(
-    (transaction) =>
-      String(transaction.status || "").toUpperCase() ===
-      "COMPLETED"
-  ).length;
+  const flaggedCount = transactions.filter((t) => transactionStatus(t) === "FLAGGED").length;
+  const totalValue = transactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
   if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <span>Loading transaction intelligence...</span>
-      </div>
-    );
+    return <LoadingState text="Loading transactions…" />;
   }
 
   return (
     <>
-      <section className="page-header">
-        <div className="section-label">
-          TRANSACTION MONITORING
-        </div>
+      <PageHeader
+        eyebrow="TRANSACTION MONITORING"
+        title="Transaction Intelligence"
+        description="Every row in BANK_TRANSACTION, newest first. HIGH-risk transactions are marked FLAGGED automatically by DETECT_FRAUD."
+        actions={<RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh transactions" />}
+      />
 
-        <h1>Transaction Intelligence</h1>
-
-        <p>
-          Search and inspect transaction activity directly
-          from the live SmartBank database.
-        </p>
-      </section>
-
-      {error && (
-        <div className="error-banner">
-          <AlertTriangle size={18} />
-          <span>{error}</span>
-
-          <button onClick={() => loadTransactions(true)}>
-            Retry
-          </button>
-        </div>
-      )}
+      <ErrorBanner error={error} onRetry={refresh} />
 
       <section className="alert-summary-grid">
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Activity size={20} />
-          </div>
-
-          <div>
-            <span>Total Transactions</span>
-            <strong>{transactions.length}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <CircleDollarSign size={20} />
-          </div>
-
-          <div>
-            <span>Completed</span>
-            <strong>{completedCount}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <AlertTriangle size={20} />
-          </div>
-
-          <div>
-            <span>Flagged</span>
-            <strong>{flaggedCount}</strong>
-          </div>
-        </div>
+        <SummaryCard icon={<Activity size={20} />} label="Total transactions" value={transactions.length} />
+        <SummaryCard icon={<CircleDollarSign size={20} />} label="Total value" value={formatCurrency(totalValue)} />
+        <SummaryCard icon={<AlertTriangle size={20} />} label="Flagged (high risk)" value={flaggedCount} tone="danger" />
       </section>
 
-      <section className="toolbar">
-        <div className="search-box">
-          <Search size={18} />
-
+      <section className="toolbar toolbar-stack">
+        <label className="search-box">
+          <Search size={18} aria-hidden="true" />
+          <span className="sr-only">Search transactions</span>
           <input
+            type="search"
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
-            placeholder="Search merchant, location, status, transaction ID..."
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search customer, account, merchant, device, location or ID…"
           />
-
           {search && (
-            <button onClick={() => setSearch("")}>
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
               <X size={16} />
             </button>
           )}
-        </div>
+        </label>
 
-        <div className="filter-group">
-          {[
-            "ALL",
-            "COMPLETED",
-            "FLAGGED",
-            "PENDING",
-            "REJECTED",
-          ].map((status) => (
-            <button
-              key={status}
-              className={
-                statusFilter === status
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() => setStatusFilter(status)}
-            >
-              {status}
-            </button>
-          ))}
-        </div>
+        <div className="toolbar-filters">
+          <div className="filter-group" role="group" aria-label="Filter by status">
+            {STATUSES.map((status) => (
+              <button
+                type="button"
+                key={status}
+                className={statusFilter === status ? "filter active" : "filter"}
+                aria-pressed={statusFilter === status}
+                onClick={() => setStatusFilter(status)}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
 
-        <div className="toolbar-right">
-          <span className="result-count">
-            {filteredTransactions.length} transactions
+          <label className="select-control">
+            <span>Type</span>
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+              {TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type === "ALL" ? "All types" : type}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <span className="result-count" aria-live="polite">
+            {filtered.length} of {transactions.length}
           </span>
-
-          <button
-            className="refresh-button"
-            onClick={() => loadTransactions(true)}
-            disabled={refreshing}
-            title="Refresh transactions"
-          >
-            <RefreshCw
-              size={18}
-              className={refreshing ? "spin" : ""}
-            />
-          </button>
         </div>
       </section>
 
       <section className="panel full-panel">
-        {filteredTransactions.length ? (
-          <div className="transaction-table">
-            <div className="transaction-head">
-              <span>Transaction</span>
-              <span>Merchant</span>
-              <span>Amount</span>
-              <span>Location</span>
-              <span>Status</span>
-            </div>
-
-            {filteredTransactions.map((transaction) => {
-              const status = String(
-                transaction.status || "COMPLETED"
-              ).toLowerCase();
-
-              return (
-                <button
-                  className="transaction-row"
-                  key={transaction.transaction_id}
-                  onClick={() =>
-                    setSelectedTransaction(transaction)
-                  }
-                >
-                  <div className="transaction-id">
-                    <div className="transaction-icon">
-                      <CircleDollarSign size={16} />
-                    </div>
-
-                    <div>
-                      <strong>
-                        #{transaction.transaction_id}
-                      </strong>
-
-                      <span>
-                        {transaction.transaction_type ||
-                          "TRANSACTION"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="merchant-cell">
-                    <strong>
-                      {transaction.merchant_name ||
-                        transaction.merchant ||
-                        "Unknown Merchant"}
-                    </strong>
-
-                    <span>
-                      {transaction.merchant_category ||
-                        transaction.category ||
-                        "General"}
-                    </span>
-                  </div>
-
-                  <strong className="amount-cell">
-                    {formatCurrency(
-                      transaction.amount,
-                      transaction.currency || "INR"
-                    )}
-                  </strong>
-
-                  <div className="location-cell">
-                    <span>
-                      {transaction.location || "Unknown"}
-                    </span>
-
-                    {transaction.device_identifier && (
-                      <small>
-                        <Smartphone size={11} />
-                        {transaction.device_identifier}
-                      </small>
-                    )}
-                  </div>
-
-                  <span
-                    className={`status-badge ${status}`}
+        {filtered.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Transaction</th>
+                  <th scope="col">Customer</th>
+                  <th scope="col">Merchant</th>
+                  <th scope="col" className="num">Amount</th>
+                  <th scope="col">Location / device</th>
+                  <th scope="col">Time</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((t) => (
+                  <tr
+                    key={t.transaction_id}
+                    tabIndex={0}
+                    onClick={() => setSelected(t)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelected(t);
+                      }
+                    }}
                   >
-                    {transaction.status || "COMPLETED"}
-                  </span>
-                </button>
-              );
-            })}
+                    <td>
+                      <strong>#{t.transaction_id}</strong>
+                      <small>{t.transaction_type}</small>
+                    </td>
+                    <td>
+                      <strong>{t.customer_name}</strong>
+                      <small>{t.account_number}</small>
+                    </td>
+                    <td>
+                      <strong>{t.merchant_name || "—"}</strong>
+                      <small>{t.merchant_category || ""}</small>
+                    </td>
+                    <td className="num">
+                      <strong>{formatCurrency(t.amount)}</strong>
+                    </td>
+                    <td>
+                      <strong>{t.location || "—"}</strong>
+                      {t.device_identifier && (
+                        <small>
+                          <Smartphone size={11} /> {t.device_identifier}
+                        </small>
+                      )}
+                    </td>
+                    <td>
+                      <small>{formatDate(t.transaction_time)}</small>
+                    </td>
+                    <td>
+                      <StatusBadge status={transactionStatus(t)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
-          <div className="empty-state">
-            <Database size={20} />
-            <span>
-              No transactions match your current filters.
-            </span>
-          </div>
+          <EmptyState
+            text={transactions.length ? "No transactions match your filters." : "No transactions available."}
+          />
         )}
       </section>
 
-      {selectedTransaction && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setSelectedTransaction(null)}
-        >
-          <div
-            className="alert-modal"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
-          >
-            <div className="modal-header">
-              <div>
-                <div className="section-label">
-                  TRANSACTION DETAILS
-                </div>
-
-                <h2>
-                  Transaction #
-                  {selectedTransaction.transaction_id}
-                </h2>
-              </div>
-
-              <button
-                className="modal-close"
-                onClick={() =>
-                  setSelectedTransaction(null)
-                }
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="modal-details">
-              <div>
-                <span>Amount</span>
-
-                <strong>
-                  {formatCurrency(
-                    selectedTransaction.amount,
-                    selectedTransaction.currency ||
-                      "INR"
-                  )}
-                </strong>
-              </div>
-
-              <div>
-                <span>Status</span>
-
-                <strong>
-                  {selectedTransaction.status ||
-                    "COMPLETED"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Transaction Type</span>
-
-                <strong>
-                  {selectedTransaction.transaction_type ||
-                    "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Merchant</span>
-
-                <strong>
-                  {selectedTransaction.merchant_name ||
-                    selectedTransaction.merchant ||
-                    "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Location</span>
-
-                <strong>
-                  {selectedTransaction.location || "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Device</span>
-
-                <strong>
-                  {selectedTransaction.device_identifier ||
-                    "—"}
-                </strong>
-              </div>
-
-              <div className="full-detail">
-                <span>Transaction Time</span>
-
-                <strong>
-                  {formatDate(
-                    selectedTransaction.transaction_time
-                  )}
-                </strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {selected && <TransactionDialog transaction={selected} onClose={() => setSelected(null)} />}
     </>
   );
 }

@@ -1,205 +1,109 @@
-import { useEffect, useState } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  Database,
-  RefreshCw,
-  Shield,
-  Users,
-} from "lucide-react";
+import { Bell, Search, ShieldCheck, ShieldOff, Users } from "lucide-react";
 import { getAnalystWorkload } from "../api";
+import {
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+  PageHeader,
+  RefreshButton,
+  SummaryCard,
+} from "../components/ui";
+import useApiData from "../hooks/useApiData";
+
+const BREAKDOWN = [
+  { key: "open_alerts", label: "Open", tone: "open" },
+  { key: "investigating_alerts", label: "Investigating", tone: "investigating" },
+  { key: "confirmed_fraud", label: "Confirmed fraud", tone: "confirmed_fraud" },
+  { key: "false_positive", label: "False positive", tone: "false_positive" },
+];
 
 function AdminAnalysts() {
-  const [analysts, setAnalysts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const { data, loading, refreshing, error, refresh } = useApiData(() => getAnalystWorkload());
+  const analysts = data || [];
 
-  async function loadAnalysts(showRefresh = false) {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      setError("");
-
-      const data = await getAnalystWorkload();
-
-      setAnalysts(
-        Array.isArray(data)
-          ? data
-          : data?.items || []
-      );
-    } catch (err) {
-      setError(
-        err?.message || "Unable to load analyst workload."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    loadAnalysts();
-  }, []);
-
-  const totalAlerts = analysts.reduce(
-    (total, analyst) =>
-      total +
-      Number(
-        analyst.open_alerts ??
-          analyst.alert_count ??
-          analyst.total_alerts ??
-          0
-      ),
-    0
-  );
+  const sum = (key) => analysts.reduce((total, a) => total + Number(a[key] || 0), 0);
 
   if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <span>Loading analyst workload...</span>
-      </div>
-    );
+    return <LoadingState text="Loading analyst workload…" />;
   }
 
   return (
     <>
-      <section className="page-header">
-        <div className="section-label">
-          FRAUD OPERATIONS
-        </div>
+      <PageHeader
+        eyebrow="FRAUD OPERATIONS"
+        title="Analyst Workload"
+        description="GENERATE_ALERT assigns each new alert to the analyst with the fewest OPEN alerts. This view shows how that workload is distributed."
+        actions={<RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh workload" />}
+      />
 
-        <h1>Analyst Workload</h1>
+      <ErrorBanner error={error} onRetry={refresh} />
 
-        <p>
-          Monitor fraud investigation workload and analyst
-          activity using live SmartBank alert data.
-        </p>
+      <section className="alert-summary-grid four">
+        <SummaryCard icon={<Users size={20} />} label="Analysts" value={analysts.length} />
+        <SummaryCard icon={<Bell size={20} />} label="Open" value={sum("open_alerts")} tone="danger" />
+        <SummaryCard icon={<Search size={20} />} label="Investigating" value={sum("investigating_alerts")} tone="warning" />
+        <SummaryCard icon={<ShieldCheck size={20} />} label="Resolved" value={sum("confirmed_fraud") + sum("false_positive")} />
       </section>
 
-      {error && (
-        <div className="error-banner">
-          <AlertTriangle size={18} />
-          <span>{error}</span>
-
-          <button onClick={() => loadAnalysts(true)}>
-            Retry
-          </button>
-        </div>
-      )}
-
-      <section className="alert-summary-grid">
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Users size={20} />
-          </div>
-
-          <div>
-            <span>Total Analysts</span>
-            <strong>{analysts.length}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Shield size={20} />
-          </div>
-
-          <div>
-            <span>Assigned Alerts</span>
-            <strong>{totalAlerts}</strong>
-          </div>
-        </div>
-
-        <div className="summary-card">
-          <div className="summary-icon">
-            <Activity size={20} />
-          </div>
-
-          <div>
-            <span>System Status</span>
-            <strong>ACTIVE</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="toolbar">
-        <div>
-          <div className="section-label">
-            ANALYST MONITORING
-          </div>
-        </div>
-
-        <button
-          className="refresh-button"
-          onClick={() => loadAnalysts(true)}
-          disabled={refreshing}
-          title="Refresh analyst workload"
-        >
-          <RefreshCw
-            size={18}
-            className={refreshing ? "spin" : ""}
-          />
-        </button>
-      </section>
-
-      <section className="workload-grid">
-        {analysts.length ? (
-          analysts.map((analyst) => {
-            const alertCount = Number(
-              analyst.open_alerts ??
-                analyst.alert_count ??
-                analyst.total_alerts ??
-                0
-            );
-
-            const name = analyst.name || "Analyst";
+      {analysts.length ? (
+        <section className="workload-grid">
+          {analysts.map((analyst) => {
+            const total = Number(analyst.total_assigned || 0);
 
             return (
-              <div
-                className="panel analyst-card"
-                key={analyst.analyst_id}
-              >
-                <div className="analyst-avatar">
-                  {name.charAt(0).toUpperCase()}
+              <article className="panel analyst-card" key={analyst.analyst_id}>
+                <div className="analyst-card-head">
+                  <div className="analyst-avatar" aria-hidden="true">
+                    {(analyst.name || "A").charAt(0).toUpperCase()}
+                  </div>
+
+                  <div className="analyst-info">
+                    <h3>{analyst.name}</h3>
+                    <span>{analyst.department || "Fraud Operations"}</span>
+                  </div>
+
+                  <div className="analyst-number">
+                    <strong>{total}</strong>
+                    <span>assigned</span>
+                  </div>
                 </div>
 
-                <div className="analyst-info">
-                  <h3>{name}</h3>
-
-                  <span>
-                    {analyst.department ||
-                      "Fraud Operations"}
-                  </span>
-
-                  {analyst.email && (
-                    <small>{analyst.email}</small>
+                <div
+                  className="workload-bar"
+                  role="img"
+                  aria-label={BREAKDOWN.map((b) => `${b.label}: ${analyst[b.key] || 0}`).join(", ")}
+                >
+                  {BREAKDOWN.map((b) =>
+                    Number(analyst[b.key]) > 0 ? (
+                      <span
+                        key={b.key}
+                        className={`seg ${b.tone}`}
+                        style={{ flexGrow: Number(analyst[b.key]) }}
+                      />
+                    ) : null
                   )}
                 </div>
 
-                <div className="analyst-number">
-                  <strong>{alertCount}</strong>
-                  <span>Open Alerts</span>
-                </div>
-              </div>
+                <dl className="workload-breakdown">
+                  {BREAKDOWN.map((b) => (
+                    <div key={b.key}>
+                      <dt>
+                        <span className={`legend-dot ${b.tone}`} />
+                        {b.label}
+                      </dt>
+                      <dd>{analyst[b.key] ?? 0}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
             );
-          })
-        ) : (
-          <div className="panel full-panel">
-            <div className="empty-state">
-              <Database size={20} />
-              <span>
-                No analyst workload data available.
-              </span>
-            </div>
-          </div>
-        )}
-      </section>
+          })}
+        </section>
+      ) : (
+        <section className="panel full-panel">
+          <EmptyState text="No analysts found in FRAUD_ANALYST." icon={ShieldOff} />
+        </section>
+      )}
     </>
   );
 }
