@@ -95,8 +95,9 @@ call `CALCULATE_RISK` on the newest flagged transaction, it returns the same sco
 **9. Testing and results (≈20 s)**
 
 "I wrote 15 database test cases in `13_testing.sql` for the rules, the triggers, the cursor and the
-constraints. The website has automated tests, and the whole install was rehearsed on a clean Oracle
-database, where every API check passed."
+constraints. The website has automated tests, and before this demo I ran a genuine end-to-end test:
+transfers made through the website were stored in Oracle, scored by the trigger, and the high-risk one
+created its alert."
 
 **10. Limitations (≈20 s)**
 

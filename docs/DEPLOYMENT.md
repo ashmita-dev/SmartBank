@@ -79,8 +79,9 @@ cd frontend; npm ci; npm run dev                                       # http://
 * Optional: `scripts\register-endpoints.ps1` installs the authenticated API (`15_api_security.sql`
   + new `ords_endpoints.sql`), grants `DBMS_CRYPTO`, and sets the demo passwords through hidden
   prompts. After that, Oracle verifies passwords and enforces roles.
+* ✅ Verified on 14 Oct 2026 (evening): transactions #241 (LOW) and #242 (HIGH, FLAGGED, alert #121) were created through this path and confirmed in Oracle (PROJECT_STATUS.md, tenth pass).
 * Genuine transaction test: **New Transfer** → payee *QuickCash Loans*, `150000`, `Lagos`, a device
-  marked *new for this account* → **Submit transfer**. Expected: a new transaction ID, HIGH,
+  marked *new for this account* (DEV-WIN-0003 is no longer new; use for example DEV-MAC-0006) → **Submit transfer**. Expected: a new transaction ID, HIGH,
   FLAGGED, and a fraud alert. Then check `BANK_TRANSACTION` / `FRAUD_ALERT` in SQL (README).
 
 ## Optional next step for a public Oracle backend (needs the owner)

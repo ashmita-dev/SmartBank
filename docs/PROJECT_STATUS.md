@@ -1,6 +1,6 @@
 # SmartBank — Project Status
 
-_Last updated: 14 Oct 2026 (ninth pass)_
+_Last updated: 14 Oct 2026 (tenth pass: final release verification)_
 
 ## Current status at a glance
 
@@ -9,9 +9,44 @@ _Last updated: 14 Oct 2026 (ninth pass)_
 | Public frontend URL | `https://ashmita-dev.github.io/SmartBank/` |
 | What the public link does | **DEMO MODE** (deployed and verified live): an in-browser simulation, labelled on every page. It makes no API calls and never claims Oracle processed anything. |
 | Is a public Oracle backend running? | **No.** No free option exists without a new account; Oracle Cloud needs card verification, which the owner declined. See [DEPLOYMENT.md](DEPLOYMENT.md). |
-| Genuine Oracle transactions | On the author's computer (REAL ORACLE MODE). Verified read-only against the laptop database this pass; full insert → trigger → alert verified on the Oracle 23ai rehearsal. |
+| Genuine Oracle transactions | On the author's computer (REAL ORACLE MODE). **Verified on the laptop database on 14 Oct evening:** #241 (LOW) and #242 (HIGH, FLAGGED, alert #121), through the website. |
 | Why the public site said "API offline" | The bundle pointed at a Cloudflare quick tunnel to the laptop; cloudflared lost its connection (the network blocked QUIC/UDP 7844) and the hostname stopped resolving. |
 | Local laptop API | Still the **older, unauthenticated** module. The current frontend supports it, with a notice; `register-endpoints.ps1` upgrades it. |
+
+## Tenth pass: final release verification (14 Oct 2026, evening)
+
+**Genuine Oracle transaction test, approved by the owner and run through the local website**
+(scripted Chrome; customer login; New Transfer; analyst login; Fraud Alerts):
+
+| | Before | After |
+|---|---|---|
+| `BANK_TRANSACTION` rows / max ID | 102 / 221 | **104 / 242** |
+| `FRAUD_ALERT` rows / max ID | 76 / 101 | **77 / 121** |
+| OPEN alerts (Kavita Rao / Suresh Menon) | 73 (37 / 36) | 73 (37 / 36): the new alert was moved to INVESTIGATING |
+
+| Synthetic test record | Input | Result, confirmed in Oracle with SQL |
+|---|---|---|
+| Transaction **#241** | AC1000001 → Amazon India, ₹2,500, Mumbai, DEV-AND-0001, 22:51:12 | COMPLETED, no alert; `CALCULATE_RISK(241)` = 0, LOW |
+| Transaction **#242** | AC1000001 → QuickCash Loans, ₹1,50,000, Lagos, DEV-WIN-0003, 22:51:13 | FLAGGED; `CALCULATE_RISK(242)` = 95, HIGH (40 + 15 + 20 + 20) |
+| Alert **#121** | created by `TRG_FRAUD_MONITOR → DETECT_FRAUD → GENERATE_ALERT` for #242 | 95 HIGH, reasons for all four rules, Suresh Menon (fewest OPEN); set to **INVESTIGATING** via the website (`PUT /alerts/121`, HTTP 200); persisted after refresh |
+
+Checks in that run: **18/18**. Exactly 2 POST and 1 PUT were sent, the API IDs matched the page,
+both rows were listed after a full refresh, and there were no page errors. The IDs jumped from 221
+to 241 because of Oracle's identity cache (20); no rows are missing.
+
+**Fixed:** the laptop's older ORDS module sends local (IST) times with a `Z` (UTC) suffix, so every
+time showed 5½ hours late. In legacy local mode (browser and Oracle on the same computer) the
+frontend now reads those times as local time. The new row displayed 10:51 pm at 10:51 pm.
+
+**Other checks:** lint 0 problems; `npm test` 39/39; build pass; `start-backend.ps1` warm and cold
+start (ORDS stopped, then started by the script; API up in about 10 s, loopback only); database
+read-only checks (12 tables, nothing INVALID, engine objects and views VALID, constraints 12 P / 11 R /
+6 U / 9 C); local read-only website check 12/12; public demo mode on the live URL 24/24; API
+invalid input 7/7 rejected and nothing inserted (5× HTTP 400; invalid type and malformed JSON give a
+generic ORDS 555).
+
+**Not verified:** a clean reboot of the laptop (the services are set to Automatic, and the cold
+start of ORDS was tested); `13_testing.sql` on the live data (it commits rows).
 
 ## Ninth pass: public DEMO MODE and local compatibility (14 Oct 2026)
 
@@ -324,7 +359,7 @@ through the local app. It confirms the live trigger → alert → FLAGGED path. 
 1. Nothing is required for the public demo mode or the local Oracle demonstration.
 2. Optional: `scripts\register-endpoints.ps1` on the laptop, for server-side sign-in.
 3. Optional: a public Oracle backend needs a new account. See DEPLOYMENT.md, *Optional next step*.
-4. Optional, with approval: one live transfer on the laptop database, to record a local write test.
+4. Done: the live transfer test on the laptop database (tenth pass).
 
 ## Known limitations
 * Shared demo logins (see README). Transfers do not move balances. Rule-based scoring.

@@ -3,6 +3,8 @@
 **SmartBank: Database-Driven Fraud Detection and Transaction Monitoring System**<br>
 Advanced DBMS project · Demonstration guide · Prepared 14 Oct 2026 from the actual repository and a read-only check of the local database
 
+> **Superseded:** use **`docs/SmartBank_Final_Demonstration_Guide.pdf`** (final verification on the evening of 14 Oct 2026, including a genuine Oracle transaction test). This earlier guide has been updated only so that it does not conflict with the final one.
+
 ---
 
 ## How to read this guide
@@ -181,13 +183,13 @@ Click **New transfer**, then:
 | Payee | `QuickCash Loans` |
 | Amount (₹) | `150000` |
 | Location | `Lagos` |
-| Device | `DEV-WIN-0003 · new for this account` |
+| Device | `DEV-MAC-0006 · new for this account` (DEV-WIN-0003 was used in the 14 Oct test) |
 
 Click **Submit transfer**. **Expected:** status **FLAGGED** and *Fraud alert #… (OPEN)* with the reasons.
 **Score:** 40 (amount) + 20 (new device) + 20 (Lagos) = **80**, plus **15** if Transfer A was less than 10 minutes earlier, giving **95**. Both are HIGH.
 
 **Results depend on the rules and the current data. Not every transfer creates an alert.**
-* A device counts as *new* only until it has been used once on that account. If you rehearse tonight, tomorrow pick **another** device marked *new for this account* (for AC1000001 today: DEV-WIN-0003, DEV-MAC-0006, DEV-AND-0008, DEV-WIN-0009, DEV-IOS-0010, DEV-AND-0011).
+* A device counts as *new* only until it has been used once on that account. Still new for AC1000001 after the 14 Oct test: DEV-MAC-0006, DEV-AND-0008, DEV-WIN-0009, DEV-IOS-0010, DEV-AND-0011.
 * A third transfer within 10 minutes gets +25 for velocity and may jump a level.
 
 ### Show the result

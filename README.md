@@ -21,6 +21,9 @@ React (Vite) ──HTTPS/JSON──▶ ORDS ──▶ Oracle Database, schema SM
 
 ## Live Demo
 
+> **Demonstration guide:** [docs/SmartBank_Final_Demonstration_Guide.pdf](docs/SmartBank_Final_Demonstration_Guide.pdf)
+> covers startup, the click sequence, the live transaction steps, a speaking script and the verified test results.
+
 [![Open SmartBank Live Demo](https://img.shields.io/badge/Open-SmartBank%20Live%20Demo%20(demo%20mode)-f59e0b?style=for-the-badge)](https://ashmita-dev.github.io/SmartBank/)
 
 **[Open SmartBank → https://ashmita-dev.github.io/SmartBank/](https://ashmita-dev.github.io/SmartBank/)**
@@ -225,19 +228,22 @@ Local:   Browser ──▶ Vite (localhost:5173) ──▶ ORDS (127.0.0.1:8080)
 
 ## Testing
 
-Latest results (14 Oct 2026; all actually run):
+Final release verification, 14 Oct 2026 (evening). All results were actually run:
 
 | Suite | Command | Result |
 |---|---|---|
-| Lint | `npm run lint` | ✅ pass |
-| Unit/component: API client, login, routes, refresh, transfer validation/submission/failures, demo engine vs Oracle totals, demo labelling, older local API | `npm test` | ✅ 38/38 |
-| Production builds (Oracle mode and demo mode, `/SmartBank/` sub-path) | `npm run build` | ✅ pass |
-| Browser, **demo mode** build (labels on all 10 routes, simulated transfer → alert, refresh, reset, mobile, no API/tunnel requests) | `npm run test:e2e:demo` | ✅ 24/24 (local preview of the Pages build) |
-| Browser, **real Oracle** on the laptop, read-only (sign-in, live data, transfer form, alerts, refresh, no writes) | scripted Chrome check | ✅ 12/12 |
-| API end-to-end with live LOW + HIGH transactions | `node scripts/api-smoke-test.mjs --write` | ✅ 62/62 on a disposable Oracle 23ai + ORDS rehearsal (clean install of `deploy/oci/`); **not run on the laptop database** (its writes need the owner's approval) |
-| Browser, real Oracle with a submitted transfer | `npm run test:e2e` | ✅ 20/20 on the same rehearsal; not run on the laptop database |
+| Lint | `npm run lint` | ✅ 0 problems |
+| Unit/component: API client, login, routes, refresh, transfer validation/submission/failures, demo engine vs Oracle totals, demo labelling, older local API, timestamps | `npm test` | ✅ 39/39 |
+| Production build (`/SmartBank/` sub-path, both modes) | `npm run build` | ✅ pass |
+| **Genuine Oracle transaction through the local website** (one LOW and one HIGH transfer, alert opened and set to INVESTIGATING, persistence after refresh), cross-checked with SQL | scripted Chrome run + SQL | ✅ 18/18: **#241** COMPLETED, score 0; **#242** FLAGGED, alert **#121** 95 HIGH, Suresh Menon |
+| Local website on Oracle, read-only (both logins, routes, refresh, data, alerts) | scripted Chrome run | ✅ 12/12 |
+| Oracle objects and data (12 tables, no INVALID objects, constraints, views, read queries) | read-only SQL | ✅ |
+| Backend startup, warm and **cold** (ORDS up in about 10 s, loopback only) | `scripts\\start-backend.ps1` | ✅ |
+| API input validation | `POST /transactions` with bad input | ✅ 7/7 rejected and nothing inserted; 5 return HTTP 400, 2 (invalid type, malformed JSON) return a generic ORDS 555 |
+| Public **demo mode** (live URL): labels on all routes, simulated transfer → alert, reset, mobile, no API calls | `npm run test:e2e:demo` | ✅ 24/24 |
+| API end-to-end on a disposable Oracle 23ai + ORDS (authenticated API, not installed on the laptop) | `node scripts/api-smoke-test.mjs --write` | ✅ 62/62 (earlier rehearsal) |
 
-* `database/13_testing.sql` holds 15 database tests (risk rules, triggers, cursor, package, constraints, rollback).
+* `database/13_testing.sql` holds 15 database tests (risk rules, triggers, cursor, package, constraints, rollback). Tests 1–9 commit rows, so they were not re-run on the live data.
 * Details: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## Limitations
@@ -247,6 +253,8 @@ Latest results (14 Oct 2026; all actually run):
 * **Simulated data is per browser.** Another visitor does not see your simulated transfers.
 * **Shared demo logins.** With the authenticated API, sign-in and roles are enforced by Oracle,
   but the two demonstration accounts are shared. With the older local module, the password is not checked.
+* **Older local API.** Two invalid inputs (an unknown transaction type, malformed JSON) are rejected
+  with a generic ORDS 555 error rather than a clean 400. Nothing is inserted, and the website form cannot send them.
 * **Transfers do not move money.** They are recorded and screened; balances are not changed.
 * **Rule-based scoring.** The risk score is a point total from fixed rules, not a probability.
 * **Alert assignment ties.** When both analysts have the same number of OPEN alerts, Oracle's choice
