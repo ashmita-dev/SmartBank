@@ -106,7 +106,9 @@ Base URL: `http://localhost:8080/ords/smartbank/sb/api`
 | Customer (linked to customer #1; the name shown is read from the `CUSTOMER` table) | `user@smartbank.com` / `user123` | Dashboard, My Accounts, Transactions, New Transfer (real `POST /transactions` with fraud result), Profile |
 
 The interface shows live database data only. When the API is unreachable, pages show
-an error with Retry and the status indicator turns red. No sample data is substituted.
+an error with Retry and the status indicator turns red (amber when only some endpoints fail).
+No sample data is substituted. Requests time out after 15 s, a newer refresh always wins over a
+slower older one, and non-JSON responses are reported as errors rather than shown as empty data.
 
 ## Quick start
 
@@ -134,12 +136,16 @@ The API URL can be overridden with `VITE_API_BASE_URL` (see `frontend/.env.examp
 
 * `database/13_testing.sql` holds 15 database tests (risk rules, triggers, cursor, package, constraints, rollback).
 * `npm run lint` and `npm run build` in `frontend/`.
+* **System & Settings → Test all endpoints** sends one read-only GET to each of the 10 read
+  endpoints and shows the HTTP status, row count and latency.
 * Status and results of the latest verification: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## Limitations
 
 * **Demo authentication only.** Logins are checked in the browser and roles are enforced only in the UI.
 * **The ORDS module is unauthenticated.** Keep ORDS on localhost; do not expose it publicly.
+* **Customer isolation is a frontend filter.** The portal requests only customer #1's rows; the API itself would return any customer's data.
 * **Transfers do not move money.** They are recorded in `BANK_TRANSACTION` and screened for fraud, but balances are not changed.
+* **Rule-based scoring.** The risk score is a point total from fixed rules, not a probability or a machine-learning prediction.
 * The backend runs locally. A hosted frontend alone cannot reach a local Oracle/ORDS.
   A manual GitHub Pages workflow is provided for the static interface (see SETUP §6), but it has not been enabled.

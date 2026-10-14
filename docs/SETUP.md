@@ -125,9 +125,12 @@ curl http://localhost:8080/ords/smartbank/sb/api/kpis
 
 * The listener service runs on `localhost:1521` and `xepdb1` is registered.
 * The ORDS `smartbank` pool is VALID (`ORDS_PUBLIC_USER` password stored in the pool wallet).
-* `http://localhost:8080/ords/smartbank/sb/api/kpis` returns live data. The original 9
-  handlers all answer. `/accounts`, `/merchants` and `/devices` appear once
-  `scripts\register-endpoints.ps1` has been run.
+* `http://localhost:8080/ords/smartbank/sb/api/kpis` returns live data.
+* `scripts\register-endpoints.ps1` has been run: all 13 handlers are published, including
+  `/accounts`, `/merchants`, `/devices` and `/customers/:id`, and customer #1 is Ashmita Mazumdar.
+* Live schema objects checked with a read-only `DBA_OBJECTS` query: 12 tables, 4 views,
+  `CALCULATE_RISK`, `CLASSIFY_RISK`, `DETECT_FRAUD`, `GENERATE_ALERT`, `REVIEW_HIGH_RISK_ALERTS`,
+  both triggers and `PKG_FRAUD_DETECTION` (spec and body), all VALID.
 
 ## 5. Frontend
 
@@ -175,3 +178,5 @@ ORDS endpoint until that module is protected with OAuth2 and CORS is limited to 
 | My Accounts says balances are unavailable; transfer form disabled | `GET /accounts`, `/merchants`, `/devices` are not published yet. Re-run `ords_endpoints.sql`. |
 | Alert action says "The API saved status INVESTIGATING instead of …" | The old `PUT /alerts/:id` handler is still deployed. Re-run `ords_endpoints.sql`. |
 | Browser CORS error | Open the app via `localhost`, not a LAN IP, or adjust ORDS allowed origins. |
+| "did not answer within 15 s" | ORDS accepted the connection but the database did not reply (listener or pool problem). Restart with `scripts\start-backend.ps1`. |
+| "returned an unexpected response format" | Something other than ORDS JSON answered (wrong `VITE_API_BASE_URL`, proxy page or an old handler). Check the URL in System & Settings. |

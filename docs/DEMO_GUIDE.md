@@ -5,12 +5,12 @@
 1. Start the backend: `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1`.
    Accept the UAC prompt; it only starts the Oracle listener service. Wait for "API is up".
 2. Start the frontend: `cd frontend` then `npm run dev`, and open <http://localhost:5173>.
-3. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm all 10 checks are green.
+3. Sign in as the analyst, open **System & Settings → Test all endpoints**, and confirm the summary reads
+   **10 healthy · 0 failed of 10** (each row shows HTTP 200, row count and latency).
 4. Keep SQL Developer (or SQLcl) open as `smartbank_user`, with `05_functions.sql` and `07_triggers.sql` ready to show.
 
-> If `/accounts`, `/merchants` or `/devices` fail, run `scripts\register-endpoints.ps1` once (hidden password prompt).
-> Until then, the analyst console works fully on live data. The customer **New Transfer** page
-> stays disabled, and **My Accounts** shows account numbers without balances; both say why on screen.
+> All endpoints were published on 14 Oct 2026. If a check ever fails, the row shows the HTTP code and
+> the reason; `scripts\register-endpoints.ps1` republishes the module (hidden password prompt).
 
 ## 1. The problem and the design (1 min)
 
@@ -28,9 +28,8 @@
 
 ## 3. Live fraud detection (3 min) — `user@smartbank.com` / `user123`
 
-Sign out, then sign in as **Customer**. This demo login is linked to customer #1 (home city Mumbai).
-The name shown comes from the `CUSTOMER` table: **Ashmita Mazumdar** once
-`14_demo_customer_profile.sql` has run (via `register-endpoints.ps1`), otherwise the seed name.
+Sign out, then sign in as **Customer**. This demo login is linked to customer #1 (home city Mumbai),
+shown as **Ashmita Mazumdar**, read from the `CUSTOMER` table.
 
 Point out the two fraud figures on the dashboard: **Under fraud review = 8** (customer #1's
 transactions with an OPEN MEDIUM alert) and **Flagged (high risk) = 0**. MEDIUM risk raises an
@@ -56,7 +55,13 @@ both columns side by side, and the **UNDER REVIEW** filter lists the 8.
 
 Sign back in as the analyst. Open **Fraud Alerts**: the new alert is at the top. Click **Confirm fraud**.
 
-## 5. Database proof (2 min, in SQL Developer)
+## 5. System & Settings (1 min)
+
+Explain the four panels: live endpoint diagnostics (read-only GETs), the risk rules copied from
+`CALCULATE_RISK` / `CLASSIFY_RISK` (a rule-based point total, **not** a probability), the database
+objects (verified VALID in the live schema), and the demonstration limits.
+
+## 6. Database proof (2 min, in SQL Developer)
 
 ```sql
 SELECT transaction_id, amount, location, status
