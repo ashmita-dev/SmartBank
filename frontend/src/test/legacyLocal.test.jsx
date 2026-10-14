@@ -77,3 +77,14 @@ describe("older local Oracle API (no /auth endpoints)", () => {
     expect(window.location.pathname).toBe("/login");
   });
 });
+
+describe("older local API timestamps", () => {
+  it("reads 'Z'-suffixed wall-clock times as local time, only for time fields", async () => {
+    const { stripUtcSuffix } = await import("../api");
+    expect(stripUtcSuffix({
+      items: [{ transaction_time: "2026-10-14T16:24:25.708Z", created_at: "2026-09-27T14:01:52Z", location: "Z", note: "2026-10-14T16:24:25Z" }],
+    })).toEqual({
+      items: [{ transaction_time: "2026-10-14T16:24:25.708", created_at: "2026-09-27T14:01:52", location: "Z", note: "2026-10-14T16:24:25Z" }],
+    });
+  });
+});

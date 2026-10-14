@@ -7,6 +7,7 @@ import {
   loadStoredSession,
   login as apiLogin,
   logout as apiLogout,
+  setLocalWallClockTimes,
   setSessionToken,
   storeSession,
 } from "../api";
@@ -57,6 +58,7 @@ function initialSession() {
   if (!saved || !user) return null;
   if (saved.legacy && !LOCAL_API) return null;
   setSessionToken(saved.legacy ? null : saved.token);
+  setLocalWallClockTimes(Boolean(saved.legacy));
   return { ...saved, appUser: user };
 }
 
@@ -66,6 +68,7 @@ export function AuthProvider({ children }) {
 
   const endSession = useCallback((message = "") => {
     setSessionToken(null);
+    setLocalWallClockTimes(false);
     storeSession(null);
     setSession(null);
     setNotice(message);
@@ -107,6 +110,7 @@ export function AuthProvider({ children }) {
 
       const next = { token: result.token, expires_at: result.expires_at, user: result.user };
       setSessionToken(next.token);
+      setLocalWallClockTimes(false);
       storeSession(next);
       setSession({ ...next, appUser });
       setNotice("");
@@ -119,6 +123,7 @@ export function AuthProvider({ children }) {
       if ([0, 404].includes(err.status) && LOCAL_API && legacyUser && (await isLegacyLocalApi())) {
         const next = { token: "legacy-local", legacy: true, expires_at: null, user: legacyUser };
         setSessionToken(null);
+        setLocalWallClockTimes(true);
         storeSession(next);
         setSession({ ...next, appUser: toAppUser(legacyUser) });
         setNotice("");

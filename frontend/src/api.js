@@ -81,6 +81,29 @@ export function storeSession(session) {
   }
 }
 
+// Older local module only: ORDS returns the database's local wall-clock
+// times with a "Z" (UTC) suffix, so browsers showed them 5.5 hours late in
+// India. In that mode the browser and Oracle run on the same computer, so the
+// suffix is dropped and the time is read as local time.
+let localWallClockTimes = false;
+
+export function setLocalWallClockTimes(enabled) {
+  localWallClockTimes = Boolean(enabled);
+}
+
+const TIME_FIELD = /(_time|_at|_date)$/;
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+export function stripUtcSuffix(value) {
+  if (Array.isArray(value)) return value.map(stripUtcSuffix);
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  for (const [key, v] of Object.entries(value)) {
+    out[key] = TIME_FIELD.test(key) && typeof v === "string" && ISO_UTC.test(v) ? v.slice(0, -1) : stripUtcSuffix(v);
+  }
+  return out;
+}
+
 // Fired when the API answers 401 to a signed-in request (expired or revoked
 // session); AuthContext listens and returns the user to the login page.
 export const UNAUTHORIZED_EVENT = "smartbank:unauthorized";
@@ -225,7 +248,8 @@ async function request(endpoint, options = {}) {
     signal?.removeEventListener("abort", onAbort);
   }
 
-  const body = await readBody(response);
+  const raw = await readBody(response);
+  const body = localWallClockTimes ? stripUtcSuffix(raw) : raw;
 
   if (!response.ok) {
     if (response.status === 401 && sessionToken && !endpoint.startsWith("/auth/login")) {
