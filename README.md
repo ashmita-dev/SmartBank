@@ -21,57 +21,77 @@ React (Vite) ──HTTPS/JSON──▶ ORDS ──▶ Oracle Database, schema SM
 
 ## Live Demo
 
-[![Open SmartBank Live Demo](https://img.shields.io/badge/Open-SmartBank%20Live%20Demo-0ea5e9?style=for-the-badge)](https://ashmita-dev.github.io/SmartBank/)
+[![Open SmartBank Live Demo](https://img.shields.io/badge/Open-SmartBank%20Live%20Demo%20(demo%20mode)-f59e0b?style=for-the-badge)](https://ashmita-dev.github.io/SmartBank/)
 
-**[Open SmartBank Live Demo → https://ashmita-dev.github.io/SmartBank/](https://ashmita-dev.github.io/SmartBank/)**
+**[Open SmartBank → https://ashmita-dev.github.io/SmartBank/](https://ashmita-dev.github.io/SmartBank/)**
 
-> **Status (14 Oct 2026): the frontend is online, but the always-on backend is not deployed yet.**
-> The page loads from GitHub Pages. Its data currently comes through a **temporary, read-only**
-> link to the author's laptop, so it works only while that laptop is on, and transfers are
-> disabled. The permanent backend, Oracle Autonomous Database (Always Free) with sign-in and live
-> transfers, is built and fully tested in a rehearsal environment. It goes live after a
-> one-time Oracle Cloud account setup by the author ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
-> This notice will be replaced with the API health link once that is verified.
+SmartBank runs in two clearly separated modes:
 
-| Part | Where | State |
+| | **DEMO MODE**: the public link above | **REAL ORACLE MODE**: the author's computer |
 |---|---|---|
-| Frontend | GitHub Pages | ✅ Online, verified 14 Oct 2026 |
-| Oracle database, PL/SQL fraud engine, ORDS API | Oracle Autonomous Database, Always Free | ⏳ Install scripts ready and rehearsed (62/62 API checks, 20/20 browser checks); waiting for the cloud account |
-| Live transaction → fraud score → alert, without the laptop | — | ⏳ After the step above |
+| Where | GitHub Pages, any browser, always on | `http://localhost:5173` with Oracle XE + ORDS running |
+| Data | The project's synthetic seed (`03_seed_data.sql`), loaded into your browser | The `SMARTBANK_USER` schema in Oracle |
+| New transfer | **Simulated** in your browser and labelled *SIMULATED, not processed by Oracle* | Inserted into `BANK_TRANSACTION`; `TRG_FRAUD_MONITOR → DETECT_FRAUD` scores it |
+| Fraud scoring | A JavaScript copy of `CALCULATE_RISK` / `CLASSIFY_RISK` / `DETECT_FRAUD` / `GENERATE_ALERT` | The PL/SQL engine itself |
+| Persistence | This browser only (**Reset** restores the seed) | The Oracle database |
+| Labels | Amber **DEMO MODE** banner on every page; never shows LIVE | **LIVE** only when every API check passes |
 
-### Demonstration login
+**Why the public site is a simulation.** A permanent public Oracle backend needs either a cloud
+account that asks for card verification (Oracle Cloud Always Free) or a separate sign-up whose
+suitability is unverified (the free APEX evaluation service). The author chose neither, so the
+public site does **not** claim to reach Oracle. The earlier public link to the laptop (a Cloudflare
+quick tunnel) has been retired: it worked only while the laptop and tunnel were running, and it
+failed on 14 Oct 2026 when the network blocked the tunnel. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-| Portal | Email | Password |
-|---|---|---|
-| Customer (demo customer #1, Ashmita Mazumdar) | `user@smartbank.com` | provided with the project submission |
-| Fraud analyst | `admin@smartbank.com` | provided with the project submission |
+**How faithful is the simulation?** Replaying the 101 seed transactions through the JavaScript
+rules gives exactly the result Oracle produced from the same script on 14 Oct 2026: **84 alerts,
+3 HIGH, 3 FLAGGED**, and 8 alerts for customer #1. An automated test checks this on every build.
 
-Passwords are set when the database is installed and are checked **by Oracle** (salted
-PBKDF2 hashes). They are not in this repository or in the website's code. All customers,
-accounts and transactions are synthetic.
+### Try it on the public link (simulated)
 
-### Try a live transaction (once the backend is live)
+1. Open the link. **Use demo account** (no password in demo mode) → **Sign in**.
+2. **New Transfer**: payee *QuickCash Loans*, amount `150000`, location `Lagos`, a device marked *new for this account* → **Simulate transfer**.
+3. The result is labelled **SIMULATED**: score **80** (40 amount + 20 new device + 20 location), **HIGH**, status FLAGGED, and a simulated alert with its reasons.
+4. Sign out, choose **Fraud Analyst** → **Use demo account** → **Fraud Alerts**: the alert is at the top, tagged **SIMULATED**.
 
-1. Sign in as the **customer** → **New Transfer**.
-2. Payee *QuickCash Loans*, amount `150000`, location `Lagos`, a device marked *new for this account* → **Submit**.
-3. The result comes from the database: the new transaction ID, risk score **80** (or 95 if you made
-   another transfer in the last 10 minutes), **HIGH**, status **FLAGGED**, and a new **fraud alert** with its reasons.
-4. A low-risk check: amount `500`, location `Mumbai`, a device marked *used on this account* → **LOW**, no alert.
-5. Sign out, sign in as the **analyst** → **Fraud Alerts**: the new alert is at the top, assigned to the
-   least-loaded analyst. Open it and **Start investigation**. Refresh: everything persists in Oracle.
+### Genuine Oracle transaction (on the author's computer)
 
-Step-by-step script: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1   # Oracle listener + ORDS
+cd frontend; npm run dev                                              # http://localhost:5173
+```
+
+Sign in, open **New Transfer** and submit the same transfer. The row is inserted into Oracle,
+and the result shows the real transaction ID, score, alert and status. Prove it in SQL:
+
+```sql
+SELECT transaction_id, amount, location, status FROM bank_transaction ORDER BY transaction_id DESC FETCH FIRST 3 ROWS ONLY;
+SELECT alert_id, transaction_id, risk_score, risk_level, reason, status FROM fraud_alert ORDER BY alert_id DESC FETCH FIRST 3 ROWS ONLY;
+```
+
+**Sign-in on the laptop.** The laptop database currently has the *older* REST module, which has
+no server-side login. The app detects this, accepts the demo emails, and shows a notice that the
+password is not checked; data and transfers are still real Oracle. To switch to the authenticated
+API (passwords verified by Oracle), run `scripts\register-endpoints.ps1` once. Details:
+[docs/SETUP.md](docs/SETUP.md).
+
+| Portal | Email |
+|---|---|
+| Customer (demo customer #1, Ashmita Mazumdar) | `user@smartbank.com` |
+| Fraud analyst | `admin@smartbank.com` |
+
+All customers, accounts and transactions are synthetic.
 
 ## Technology
 
 | Layer | Technology |
 |---|---|
-| Database | Oracle Database: 21c Express Edition locally (`XEPDB1`); Oracle Autonomous Database (Always Free, 19c/26ai) for the public demo |
+| Database | Oracle Database 21c Express Edition (`XEPDB1`); scripts also tested on Oracle 23ai Free |
 | Logic | SQL, PL/SQL: functions, procedures, compound trigger, cursor, packages |
 | API | Oracle REST Data Services, module `smartbank.api`, schema alias `sb`; session authentication in `PKG_SMARTBANK_API` |
 | Frontend | React 19, Vite 8, React Router 7, Recharts, Lucide icons |
-| Hosting | GitHub Pages (frontend, GitHub Actions); Oracle Cloud (database + ORDS) |
-| Tests | Vitest + Testing Library (23), API end-to-end script (62 checks), Chrome end-to-end via playwright-core (20 checks) |
+| Hosting | GitHub Pages (frontend, GitHub Actions): demo mode publicly, real Oracle mode locally |
+| Tests | Vitest + Testing Library (38), API end-to-end script (62 checks), Chrome end-to-end via playwright-core (Oracle mode 20, demo mode 24) |
 
 ## Database architecture (12 tables)
 
@@ -134,10 +154,11 @@ balances, statuses, amounts and risk ranges.
 
 ## REST API
 
-Base URL: `http://localhost:8080/ords/smartbank/sb/api` (local) or
-`https://<adb-host>/ords/sb/api` (Oracle Cloud). Except for `/health` and `/auth/login`, every
-call needs the `X-Session-Token` header returned by sign-in. Oracle enforces the role and the
-customer's data scope.
+Base URL: `http://localhost:8080/ords/smartbank/sb/api` (local). This is the authenticated API
+installed by `register-endpoints.ps1` (`15_api_security.sql` + `ords_endpoints.sql`). Except for
+`/health` and `/auth/login`, every call needs the `X-Session-Token` header returned by sign-in;
+Oracle enforces the role and the customer's data scope. The public demo mode answers the same
+endpoints from an in-browser simulation instead (`frontend/src/demo/`).
 
 | Method | Path | Who | Purpose |
 |---|---|---|---|
@@ -173,7 +194,9 @@ powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1
 #    If it reports a missing ORDS pool password, run once first:
 #    powershell -ExecutionPolicy Bypass -File scripts\repair-ords-pool.ps1
 
-# 2. Install/refresh the API and security layer; choose local demo passwords (hidden prompts)
+# 2. Optional: install the authenticated API (server-side sign-in); asks for the
+#    SMARTBANK_USER password and new demo passwords in hidden prompts. Without it,
+#    the app works with the older module and says the password is not checked.
 powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
 
 # 3. Frontend
@@ -183,25 +206,22 @@ npm run dev        # http://localhost:5173
 ```
 
 The API URL can be overridden with `VITE_API_BASE_URL` (see `frontend/.env.example`).
+To try the public demo mode locally: `$env:VITE_DEMO_MODE="true"; npm run dev`.
 
 ## Deployment
 
 ```
-Browser ──HTTPS──▶ GitHub Pages (static React build; contains no secrets)
-   └──HTTPS──▶ Oracle Autonomous Database, Always Free (Oracle Cloud)
-                 ├─ ORDS, managed by Oracle: /ords/sb/api → PKG_SMARTBANK_API
-                 └─ SMARTBANK_USER: 12 tables, triggers, fraud engine (unchanged)
+Public:  Browser ──HTTPS──▶ GitHub Pages ── DEMO MODE (in-browser simulation; no API calls)
+
+Local:   Browser ──▶ Vite (localhost:5173) ──▶ ORDS (127.0.0.1:8080) ──▶ Oracle XE (XEPDB1)
+                                                 REAL ORACLE MODE: PL/SQL fraud engine
 ```
 
-* **Frontend:** `.github/workflows/deploy-frontend.yml` lints, tests and builds on every push,
-  and publishes to Pages with the repository variable `SMARTBANK_API_URL`. It checks
-  `/health` first and refuses `localhost` or tunnel URLs.
-* **Backend:** three SQL files in [`deploy/oci/`](deploy/oci/) are run once in Oracle's web
-  console. `keep-database-awake.yml` pings `/health` every 3 days, so the free database is
-  never stopped for inactivity.
-* **Cost:** $0 (Oracle Always Free + GitHub Pages). Oracle requires a card for identity
-  verification only.
-* Full guide, security model and rehearsal results: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+* `.github/workflows/deploy-frontend.yml` lints, tests and builds on every push. It publishes
+  **DEMO MODE** unless the repository variable `SMARTBANK_API_URL` names a hosted SmartBank API
+  whose `/health` answers; then it builds **REAL ORACLE MODE** against it. Tunnel URLs are refused.
+* Oracle and ORDS are never exposed to the internet: ORDS listens on 127.0.0.1 only.
+* Hosting options for a public Oracle backend, and why none is used: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Testing
 
@@ -210,24 +230,24 @@ Latest results (14 Oct 2026; all actually run):
 | Suite | Command | Result |
 |---|---|---|
 | Lint | `npm run lint` | ✅ pass |
-| Unit/component (API client, login, protected routes, refresh, transfer validation, submission, failures, risk result) | `npm test` | ✅ 23/23 |
-| Production build (`/SmartBank/` sub-path) | `npm run build` | ✅ pass |
-| API end-to-end (auth, roles, scoping, CORS, validation, LOW + HIGH live transactions, alert, persistence) | `node scripts/api-smoke-test.mjs --write` | ✅ 62/62 on the rehearsal database (Oracle 23ai Free + ORDS 26.2, clean install from `deploy/oci/`) |
-| Browser end-to-end (real Chrome, Pages-style build) | `npm run test:e2e` | ✅ 20/20 on the same rehearsal |
-| Against the public cloud deployment | same commands | ⏳ not run yet: the cloud database does not exist yet |
+| Unit/component: API client, login, routes, refresh, transfer validation/submission/failures, demo engine vs Oracle totals, demo labelling, older local API | `npm test` | ✅ 38/38 |
+| Production builds (Oracle mode and demo mode, `/SmartBank/` sub-path) | `npm run build` | ✅ pass |
+| Browser, **demo mode** build (labels on all 10 routes, simulated transfer → alert, refresh, reset, mobile, no API/tunnel requests) | `npm run test:e2e:demo` | ✅ 24/24 (local preview of the Pages build) |
+| Browser, **real Oracle** on the laptop, read-only (sign-in, live data, transfer form, alerts, refresh, no writes) | scripted Chrome check | ✅ 12/12 |
+| API end-to-end with live LOW + HIGH transactions | `node scripts/api-smoke-test.mjs --write` | ✅ 62/62 on a disposable Oracle 23ai + ORDS rehearsal (clean install of `deploy/oci/`); **not run on the laptop database** (its writes need the owner's approval) |
+| Browser, real Oracle with a submitted transfer | `npm run test:e2e` | ✅ 20/20 on the same rehearsal; not run on the laptop database |
 
 * `database/13_testing.sql` holds 15 database tests (risk rules, triggers, cursor, package, constraints, rollback).
-* **System & Settings → Test all endpoints** checks 11 endpoints live (HTTP status, rows, latency).
 * Details: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## Limitations
 
-* **Shared demo logins.** Sign-in and roles are enforced by Oracle, but the two demonstration
-  accounts are shared by everyone who has the password. This is acceptable only because all data
-  is synthetic and writes are rate-limited. A real bank would use individual identities and MFA.
-* **Transfers do not move money.** They are recorded in `BANK_TRANSACTION` and screened for fraud; balances are not changed.
-* **Rule-based scoring.** The risk score is a point total from fixed rules, not a probability or a machine-learning prediction.
-* **Always Free limits.** About 3–6 simultaneous users, and no backups or point-in-time restore.
-  The database stops after 7 days without activity; the keep-alive workflow prevents that.
-* **Seed timestamps** were written in Indian time. On the UTC cloud database, the historical seed
-  rows show 5½ hours later than on the laptop; new transactions show the correct local time.
+* **The public link is a simulation.** It demonstrates the interface and the fraud rules, not
+  Oracle. Genuine Oracle processing is shown on the author's computer.
+* **Simulated data is per browser.** Another visitor does not see your simulated transfers.
+* **Shared demo logins.** With the authenticated API, sign-in and roles are enforced by Oracle,
+  but the two demonstration accounts are shared. With the older local module, the password is not checked.
+* **Transfers do not move money.** They are recorded and screened; balances are not changed.
+* **Rule-based scoring.** The risk score is a point total from fixed rules, not a probability.
+* **Alert assignment ties.** When both analysts have the same number of OPEN alerts, Oracle's choice
+  is unspecified; the simulation picks the lower analyst ID.

@@ -2,82 +2,103 @@
 
 _Last updated: 14 Oct 2026_
 
-## Current status
+## Public frontend URL
 
-| Part | Status |
-|---|---|
-| Frontend on GitHub Pages, `https://ashmita-dev.github.io/SmartBank/` | **Online.** It still serves the earlier **read-only** build, which reaches Oracle only through a temporary Cloudflare tunnel to the author's laptop. The new build is published automatically once the cloud API exists. |
-| Oracle database + API independent of the laptop | **Not deployed yet.** Everything needed has been built and rehearsed (below). It is waiting on one manual step: creating a free Oracle Cloud account, which only the owner can do. |
-| Public transaction submission | Works in the rehearsal environment (below). **Not yet available publicly.** |
+**https://ashmita-dev.github.io/SmartBank/** (GitHub Pages, published by `.github/workflows/deploy-frontend.yml`).
 
-## Target architecture
+## What works where
 
+| | Public link (GitHub Pages) | Author's computer |
+|---|---|---|
+| Mode | **DEMO MODE** | **REAL ORACLE MODE** |
+| Needs the laptop on? | No | Yes: Oracle XE, the listener service and ORDS |
+| Sign-in | Simulated: demo emails, no password | The authenticated API (Oracle checks passwords) after `register-endpoints.ps1`; until then the older module, with a notice that the password is not checked |
+| Data shown | Synthetic seed replayed in the browser | Live `SMARTBANK_USER` schema |
+| New transfer | Simulated in the browser, labelled *SIMULATED, not processed by Oracle* | Inserted into `BANK_TRANSACTION`, scored by `TRG_FRAUD_MONITOR → DETECT_FRAUD` |
+| Analyst alert actions | Simulated, labelled | Saved in `FRAUD_ALERT` |
+| Persistence | This browser's storage (Reset button) | Oracle |
+
+## Why the public link stopped working (diagnosed 14 Oct 2026)
+
+1. The deployed bundle had a Cloudflare **quick tunnel** address hard-coded
+   (`https://jay-wherever-knives-interventions.trycloudflare.com/api`).
+2. The tunnel ran on the laptop (`cloudflared` → `gateway/server.mjs` → ORDS). Its log shows it
+   losing its connection to Cloudflare from about 16:00 UTC: `failed to dial to edge with quic:
+   timeout` and `A socket operation was attempted to an unreachable network`. The network appears
+   to block cloudflared's outbound UDP/7844. While disconnected, the random hostname stopped
+   resolving, so every API call from the public site failed: "Database unreachable" / "API offline".
+3. Quick-tunnel hostnames also change on every restart, and the gateway only allowed GET requests,
+   so even a working tunnel could never accept public transactions.
+
+The tunnel approach is retired: the gateway and tunnel script were removed from the repository,
+and the workflow now refuses `trycloudflare.com` URLs. (The `cloudflared` process that may still be
+running on the laptop no longer serves anything the site uses; stop it in Task Manager if wanted.)
+
+## Free, persistent Oracle hosting: what was evaluated
+
+| Option | Free? | Blocker | Status |
+|---|---|---|---|
+| Oracle Cloud **Always Free Autonomous Database** (managed ORDS, HTTPS) | $0, but sign-up requires a credit/debit card for identity verification | The owner chose not to enter card details | Not used. Scripts in `deploy/oci/` are ready and were rehearsed (below) in case that changes. |
+| Oracle **free APEX evaluation service** (apex.oracle.com, now oracleapex.com): Oracle Database + RESTful Services | Yes; Oracle says no payment is needed | Needs the owner to request a workspace (a new account). It is for demonstrations only, and workspaces are purged after 60 days of inactivity with no backups. Whether it grants `DBMS_CRYPTO` (used by the authenticated API) and allows the CORS settings is **unverified** | Not used; see *Optional next step* |
+| General free hosts (Render, Vercel, Netlify, Fly, …) | Some tiers are free | None of them hosts Oracle Database or ORDS. Replacing Oracle would drop the PL/SQL engine that the project is about | Rejected |
+| Laptop + tunnel | Free | Not persistent; blocked on the campus network | Retired |
+
+**Conclusion:** without a new account, no free, persistent public Oracle backend is available.
+The public site therefore runs DEMO MODE, and genuine Oracle processing is demonstrated locally.
+
+## DEMO MODE (public)
+
+* Built with `VITE_DEMO_MODE=true`. The workflow chooses it automatically whenever the
+  repository variable `SMARTBANK_API_URL` is not set.
+* `frontend/src/demo/demoApi.js` answers the same endpoints, JSON shapes, roles and validation
+  messages as `PKG_SMARTBANK_API`, entirely in the browser. **No network request is made**: the
+  browser test confirms that only the site's own files and Google Fonts are loaded.
+* Data: `frontend/src/demo/seedData.json`, generated from `database/03_seed_data.sql` and
+  `14_demo_customer_profile.sql` by `scripts/build-demo-data.mjs` (CI fails if it is stale).
+* Scoring: `frontend/src/demo/fraudEngine.js`, a rule-by-rule copy of `CALCULATE_RISK`,
+  `CLASSIFY_RISK`, `DETECT_FRAUD` and `GENERATE_ALERT`. Replaying the seed gives 84 alerts,
+  3 HIGH and 3 FLAGGED, identical to the Oracle 23ai install of the same script; a unit test enforces it.
+* Labelling: an amber banner on every signed-in page (*DEMO MODE: simulated, not connected to
+  Oracle*), the status badge reads **DEMO MODE** (never LIVE), transfer results say *SIMULATED, not
+  processed by Oracle*, alert changes say *in the demo simulation (this browser only, not Oracle)*,
+  and created rows carry a **SIMULATED** tag.
+* Try it locally: `cd frontend; $env:VITE_DEMO_MODE="true"; npm run dev`.
+
+## REAL ORACLE MODE (local)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1   # listener (UAC) + ORDS
+cd frontend; npm ci; npm run dev                                       # http://localhost:5173
 ```
-Browser ──HTTPS──▶ GitHub Pages                (static React build; no secrets)
-   │
-   └──HTTPS──▶ Oracle Autonomous Database, Always Free (Oracle Cloud)
-                 ├─ ORDS (managed by Oracle):  /ords/sb/api/...  module smartbank.api
-                 │     every handler → PKG_SMARTBANK_API  (session check, role, validation)
-                 └─ SMARTBANK_USER schema: the same 12 tables, constraints,
-                    TRG_VALIDATE_TRANSACTION, TRG_FRAUD_MONITOR → DETECT_FRAUD,
-                    CALCULATE_RISK, CLASSIFY_RISK, GENERATE_ALERT, PKG_FRAUD_DETECTION …
-```
 
-Nothing runs on the laptop. There is no tunnel, no self-managed server and no open listener
-port: Oracle runs ORDS and terminates HTTPS.
+* Sign in as `user@smartbank.com` (customer) or `admin@smartbank.com` (analyst).
+* With the laptop's current, **older** REST module the app shows *"Local Oracle API without
+  server-side sign-in detected"* and does not check the password. Data and transfers are real Oracle.
+  It falls back like this only when the API is on `localhost` **and** the old module is confirmed
+  (an unauthenticated `GET /merchants` succeeds); a hosted build never does.
+* Optional: `scripts\register-endpoints.ps1` installs the authenticated API (`15_api_security.sql`
+  + new `ords_endpoints.sql`), grants `DBMS_CRYPTO`, and sets the demo passwords through hidden
+  prompts. After that, Oracle verifies passwords and enforces roles.
+* Genuine transaction test: **New Transfer** → payee *QuickCash Loans*, `150000`, `Lagos`, a device
+  marked *new for this account* → **Submit transfer**. Expected: a new transaction ID, HIGH,
+  FLAGGED, and a fraud alert. Then check `BANK_TRANSACTION` / `FRAUD_ALERT` in SQL (README).
 
-### Why this option
+## Optional next step for a public Oracle backend (needs the owner)
 
-| Option | Verdict |
-|---|---|
-| **A. Oracle Autonomous Database, Always Free** | **Chosen.** Real Oracle Database (19c or 26ai), so the schema, triggers, PL/SQL and package run unchanged. ORDS is built in and served over HTTPS. **Cost: $0.** Limits: 2 databases per account, 20 GB, about 3–6 simultaneous HTTP users (enough for a class demonstration; extra users may briefly get HTTP 429), and it stops after 7 days without activity (see *Keeping it awake*). Source: Oracle's *Always Free Autonomous AI Database* documentation, checked 14 Oct 2026. |
-| B. Always-on VM running Oracle Free + ORDS (for example an OCI Always Free compute VM) | Possible and also free, but you would patch the OS, database and ORDS yourself, manage TLS certificates and open a firewall. More work and more risk for the same result. |
-| C. General web hosts (Render, Vercel, Netlify, Heroku, …) | Not compatible: none of them host Oracle Database or ORDS. Replacing Oracle with PostgreSQL or SQLite would discard the PL/SQL engine, which is the subject of the project. |
-| Laptop + tunnel (previous setup) | Not a hosting solution: it stops when the laptop sleeps, and the address changes on every restart. Retired. |
+If a real public Oracle demo is wanted later, the smallest path that needs **no payment**:
 
-## Security model
+1. Request a free workspace at <https://apex.oracle.com> (email sign-up; demo use only).
+2. Tell the assistant it exists. The assistant would then check, in that workspace, whether
+   `DBMS_CRYPTO` is available and whether RESTful Services allow the GitHub Pages origin, before
+   adapting the install scripts. Nothing is promised until that has been verified.
+3. Set the repository variable `SMARTBANK_API_URL` to the verified API URL. The workflow then
+   builds REAL ORACLE MODE automatically (after a `/health` check).
 
-* **Authentication in Oracle.** `POST /auth/login` checks the password against a salted
-  PBKDF2-HMAC-SHA256 hash (20,000 iterations) in `API_USER`. On success Oracle returns a random
-  256-bit session token. Only a SHA-256 hash of the token is stored (`API_SESSION`), and it
-  expires after 8 hours or on sign-out.
-* **Authorisation in Oracle.** Every handler calls `PKG_SMARTBANK_API`, which reads the
-  `X-Session-Token` header and enforces the role:
+Alternatively, with card verification (still $0): the Oracle Cloud steps below.
 
-  | Operation | Customer | Analyst | Signed out |
-  |---|---|---|---|
-  | `GET /health` | ✓ | ✓ | ✓ (no data) |
-  | `GET /kpis`, `/risk-distribution`, `/daily-analytics`, `/analysts/workload` | 403 | ✓ | 401 |
-  | `GET /transactions`, `/alerts`, `/alerts/:id`, `/accounts`, `/devices`, `/customers/:id` | own customer only | all | 401 |
-  | `GET /merchants` | ✓ | ✓ | 401 |
-  | `POST /transactions` | own accounts only | 403 | 401 |
-  | `PUT /alerts/:id` | 403 | ✓ | 401 |
+## Oracle Cloud Always Free (not used: needs card verification)
 
-* **Input validation** in PL/SQL: JSON shape and types, positive whole-number IDs, account
-  ownership, existing merchant and device, amount above 0, at most ₹1,00,00,000 and at most
-  2 decimals, allowed transaction types, and city names limited to letters, spaces and `. , ' ( ) -`.
-  `TRG_VALIDATE_TRANSACTION` still applies its own checks. Errors are returned as JSON
-  (`400/401/403/404/429`); unexpected Oracle errors return a generic 500 with the error number only.
-* **Abuse limits:** 20 transactions per demo account per 10 minutes and 500 per day in total;
-  60 alert updates per 10 minutes; an account is locked for 5 minutes after 10 wrong passwords.
-* **CORS:** browsers may call the API only from `https://ashmita-dev.github.io` (and
-  `localhost` for development).
-* **No secrets in the repository or the browser bundle.** Database and demo passwords are
-  typed only into Oracle's own console. The CI build fails if the bundle contains credential
-  patterns. `VITE_API_BASE_URL` is a public address, not a secret.
-* **Audit trail:** `API_EVENT` records sign-ins, failed sign-ins, created transactions and
-  alert status changes. These rows also identify which transactions were created through the
-  public demo.
-* **Not exposed:** no listener port on the laptop. Autonomous Database offers SQL*Net on its
-  own TLS-only endpoint (mutual TLS with a wallet by default), managed by Oracle. Database
-  Actions (Oracle's web SQL tool) is part of every Autonomous Database and cannot be switched
-  off; it requires a database username and password. AutoREST metadata for the schema is set
-  to require authentication.
-* **Honest limits:** the two demo logins are shared, so anyone who is given a password can
-  use that role. That is acceptable only because all data is synthetic and writes are
-  rate-limited. A real bank would use individual identities, MFA and an identity provider.
-
-## One-time setup (owner) — about 20 minutes
+### Steps, kept for reference
 
 You need: a browser, an email address, and a credit or debit card **for identity
 verification only**. Oracle states that Always Free resources are never charged. Do **not**
@@ -121,7 +142,7 @@ click *Upgrade to paid account*; then nothing can be billed.
 `<your-database-host>` looks like `abcd1234efgh-smartbank.adb.ap-mumbai-1.oraclecloudapps.com`.
 It is shown in the Database Actions address, and on the database page under *Tool configuration*.
 
-### Verifying the live deployment
+#### Verifying a hosted deployment
 
 After step 7, the full end-to-end checks can be run from any computer. Put the two demo
 passwords in a git-ignored file instead of on the command line:
@@ -145,7 +166,7 @@ cd frontend; npm run test:e2e      # real Chrome against the public site
 HIGH), and moves only the alert it created to INVESTIGATING. The browser test inserts one more
 HIGH-risk transfer through the New Transfer page. Nothing else is changed.
 
-## Keeping it awake
+#### Keeping it awake
 
 Oracle **stops** an Always Free database after 7 days without activity, and may **delete** it
 after 90 days stopped. `.github/workflows/keep-database-awake.yml` calls `GET /health` every
@@ -154,6 +175,48 @@ console (it takes about 5 minutes before ORDS answers). GitHub pauses scheduled 
 repositories with no commits for 60 days, so re-enable it from the Actions tab if needed.
 There is no backup or point-in-time restore on Always Free. The data is the synthetic seed,
 which `01_install_smartbank.sql` recreates.
+
+## Security model of the authenticated API (local, or any future hosted Oracle)
+
+* **Authentication in Oracle.** `POST /auth/login` checks the password against a salted
+  PBKDF2-HMAC-SHA256 hash (20,000 iterations) in `API_USER`. On success Oracle returns a random
+  256-bit session token. Only a SHA-256 hash of the token is stored (`API_SESSION`), and it
+  expires after 8 hours or on sign-out.
+* **Authorisation in Oracle.** Every handler calls `PKG_SMARTBANK_API`, which reads the
+  `X-Session-Token` header and enforces the role:
+
+  | Operation | Customer | Analyst | Signed out |
+  |---|---|---|---|
+  | `GET /health` | ✓ | ✓ | ✓ (no data) |
+  | `GET /kpis`, `/risk-distribution`, `/daily-analytics`, `/analysts/workload` | 403 | ✓ | 401 |
+  | `GET /transactions`, `/alerts`, `/alerts/:id`, `/accounts`, `/devices`, `/customers/:id` | own customer only | all | 401 |
+  | `GET /merchants` | ✓ | ✓ | 401 |
+  | `POST /transactions` | own accounts only | 403 | 401 |
+  | `PUT /alerts/:id` | 403 | ✓ | 401 |
+
+* **Input validation** in PL/SQL: JSON shape and types, positive whole-number IDs, account
+  ownership, existing merchant and device, amount above 0, at most ₹1,00,00,000 and at most
+  2 decimals, allowed transaction types, and city names limited to letters, spaces and `. , ' ( ) -`.
+  `TRG_VALIDATE_TRANSACTION` still applies its own checks. Errors are returned as JSON
+  (`400/401/403/404/429`); unexpected Oracle errors return a generic 500 with the error number only.
+* **Abuse limits:** 20 transactions per demo account per 10 minutes and 500 per day in total;
+  60 alert updates per 10 minutes; an account is locked for 5 minutes after 10 wrong passwords.
+* **CORS:** browsers may call the API only from `https://ashmita-dev.github.io` (and
+  `localhost` for development).
+* **No secrets in the repository or the browser bundle.** Database and demo passwords are
+  typed only into Oracle's own console. The CI build fails if the bundle contains credential
+  patterns. `VITE_API_BASE_URL` is a public address, not a secret.
+* **Audit trail:** `API_EVENT` records sign-ins, failed sign-ins, created transactions and
+  alert status changes. These rows also identify which transactions were created through the
+  public demo.
+* **Not exposed:** no listener port on the laptop. Autonomous Database offers SQL*Net on its
+  own TLS-only endpoint (mutual TLS with a wallet by default), managed by Oracle. Database
+  Actions (Oracle's web SQL tool) is part of every Autonomous Database and cannot be switched
+  off; it requires a database username and password. AutoREST metadata for the schema is set
+  to require authentication.
+* **Honest limits:** the two demo logins are shared, so anyone who is given a password can
+  use that role. That is acceptable only because all data is synthetic and writes are
+  rate-limited. A real bank would use individual identities, MFA and an identity provider.
 
 ## What was rehearsed (14 Oct 2026)
 
@@ -175,8 +238,7 @@ Two problems were found and fixed during the rehearsal: `03_seed_data.sql` had 1
 that SQL*Plus never ran (a `-- comment` after the `;`), and a package function was being called
 from SQL. Neither would have been caught without a clean install.
 
-## Local development (unchanged workflow)
 
-The laptop database keeps working for development: `scripts\start-backend.ps1`, then
-`scripts\register-endpoints.ps1` (now also installs the security layer and sets the local demo
-passwords), then `npm run dev` in `frontend/`. See [SETUP.md](SETUP.md).
+## Local development
+
+See [SETUP.md](SETUP.md).

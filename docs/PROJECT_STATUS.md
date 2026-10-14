@@ -1,19 +1,44 @@
 # SmartBank — Project Status
 
-_Last updated: 14 Oct 2026 (eighth pass)_
+_Last updated: 14 Oct 2026 (ninth pass)_
 
 ## Current status at a glance
 
 | Question | Answer (verified 14 Oct 2026) |
 |---|---|
-| Public frontend URL | `https://ashmita-dev.github.io/SmartBank/`. **Loads (HTTP 200).** It still serves the earlier read-only build. |
-| Is the Oracle backend independent of the laptop? | **Not yet.** The permanent backend (Oracle Autonomous Database, Always Free) is ready to install but needs the owner's Oracle Cloud account. See [DEPLOYMENT.md](DEPLOYMENT.md). |
-| Does public transaction submission work? | **No, not publicly yet.** It works end to end in the rehearsal (below). |
-| Which public API exists today? | Only a temporary Cloudflare quick tunnel to the laptop's read-only gateway, which stops when the laptop does. It is being retired. |
-| Was a test transaction inserted and scored by the real fraud engine? | **Yes, in the rehearsal database:** the same scripts and PL/SQL on Oracle 23ai Free + ORDS 26.2 (LOW: score 0, no alert; HIGH: score 95, FLAGGED, 1 alert). Not on the laptop database, and not on the cloud database. |
-| What is local-only? | The laptop XE database (development) and the current tunnel. |
-| Cloud resources required | 1 Oracle Cloud account (free tier), 1 Always Free Autonomous Database, 1 GitHub repository variable. **Cost: $0.** |
-| Manual steps remaining | DEPLOYMENT.md, *One-time setup*, steps 1–7 (owner only: account, passwords). Then the verification run. |
+| Public frontend URL | `https://ashmita-dev.github.io/SmartBank/` |
+| What the public link does | **DEMO MODE**, after this pass's deployment: an in-browser simulation, labelled on every page. It makes no API calls and never claims Oracle processed anything. |
+| Is a public Oracle backend running? | **No.** No free option exists without a new account; Oracle Cloud needs card verification, which the owner declined. See [DEPLOYMENT.md](DEPLOYMENT.md). |
+| Genuine Oracle transactions | On the author's computer (REAL ORACLE MODE). Verified read-only against the laptop database this pass; full insert → trigger → alert verified on the Oracle 23ai rehearsal. |
+| Why the public site said "API offline" | The bundle pointed at a Cloudflare quick tunnel to the laptop; cloudflared lost its connection (the network blocked QUIC/UDP 7844) and the hostname stopped resolving. |
+| Local laptop API | Still the **older, unauthenticated** module. The current frontend supports it, with a notice; `register-endpoints.ps1` upgrades it. |
+
+## Ninth pass: public DEMO MODE and local compatibility (14 Oct 2026)
+
+**Diagnosis:** see the table above and DEPLOYMENT.md, *Why the public link stopped working*.
+
+**Found:** the previous pass's frontend required `/auth/login`, which the laptop's older ORDS
+module does not have. The local Oracle demonstration would have failed at sign-in until
+`register-endpoints.ps1` was run. Fixed with a guarded fallback: it applies only when the API is on
+localhost **and** an unauthenticated `GET /merchants` succeeds (the older module), and it is labelled.
+The older `POST /transactions` reply (no score for LOW risk) is now displayed correctly.
+
+**Built:** DEMO MODE (`VITE_DEMO_MODE=true`): `frontend/src/demo/` (simulated API, JS fraud
+engine, seed JSON generated from `03_seed_data.sql`), a demo banner on every page, a DEMO MODE
+badge, a SIMULATED tag on created rows, and a reset button. The workflow publishes DEMO MODE unless
+`SMARTBANK_API_URL` is set and healthy, and rejects tunnel URLs.
+
+**Tests run (all actually executed)**
+
+| Test | Result |
+|---|---|
+| `npm run lint` | **Pass** |
+| `npm test` (Vitest) | **38/38**: includes the demo engine replay = Oracle totals (84 alerts, 3 HIGH, 3 FLAGGED, 8 for customer #1), the rule-by-rule scores, demo labelling with no network calls, the older local API fallback (and that it is *not* used for a hosted, new or unreachable API), and the older POST reply |
+| Demo-mode production build at `/SmartBank/` + bundle scans | **Pass**: no `trycloudflare.com` URL, no credential patterns |
+| `npm run test:e2e:demo` (real Chrome, local preview of the Pages build) | **24/24**: banner and DEMO MODE badge on all 10 routes after direct link and refresh; simulated transfer = score 80, HIGH, FLAGGED, alert #85; labelled SIMULATED and never "inserted into BANK_TRANSACTION"; persists after refresh; analyst sees the tagged alert; alert change labelled simulated; reset; 390 px without horizontal scroll; no request except site files and Google Fonts; no console errors |
+| Real Chrome against the **laptop's live Oracle**, read-only | **12/12**: older-module sign-in with notice; name from `CUSTOMER`; LIVE badge; 12 customer transactions; transfer form with 8 payees (not submitted); analyst overview "Connected to Oracle" (102 transactions, 76 alerts); 76 alerts; refresh; **no write requests**; no page errors |
+| Transfer submitted to the laptop database | **Not run**: it writes permanent rows; needs the owner's approval |
+| Public site after deployment | Recorded in the commit and deployment notes below this table once checked |
 
 ## Eighth pass: production architecture, server-side security, rehearsal (14 Oct 2026)
 
@@ -295,13 +320,10 @@ through the local app. It confirms the live trigger → alert → FLAGGED path. 
 
 ## Remaining work (needs the owner)
 
-1. Create the Oracle Cloud Always Free account and database, run the three `deploy/oci/` scripts,
-   and set the `SMARTBANK_API_URL` repository variable: [DEPLOYMENT.md](DEPLOYMENT.md), steps 1–7.
-2. Run the verification (`api-smoke-test.mjs --write`, `npm run test:e2e`) against the public
-   URL, then switch the README Live Demo notice to "verified".
-3. Optional, local: run `scripts\register-endpoints.ps1` so the laptop database also has the
-   security layer. This replaces the laptop's unauthenticated module, so the old read-only
-   tunnel site will stop working; that is intended once the cloud backend is live.
+1. Nothing is required for the public demo mode or the local Oracle demonstration.
+2. Optional: `scripts\register-endpoints.ps1` on the laptop, for server-side sign-in.
+3. Optional: a public Oracle backend needs a new account. See DEPLOYMENT.md, *Optional next step*.
+4. Optional, with approval: one live transfer on the laptop database, to record a local write test.
 
 ## Known limitations
 * Shared demo logins (see README). Transfers do not move balances. Rule-based scoring.

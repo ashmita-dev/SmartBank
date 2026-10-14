@@ -1,19 +1,25 @@
 # SmartBank — Demonstration Guide (about 10 minutes)
 
-Works the same on the public site (`https://ashmita-dev.github.io/SmartBank/`, once the cloud
-API is deployed, see [DEPLOYMENT.md](DEPLOYMENT.md)) and locally (`http://localhost:5173`).
+There are two ways to show SmartBank. Say which one you are using.
 
-**Demo logins.** The emails are `user@smartbank.com` (customer) and `admin@smartbank.com`
-(analyst). Passwords are set by the owner when the database is installed and are shared with
-the evaluator. They are not stored in this repository. On the login page, **Use demo account**
-fills in the email; type the password.
+| | Where | What it proves |
+|---|---|---|
+| **REAL ORACLE MODE** (main demonstration) | The author's laptop, `http://localhost:5173` | Transactions inserted into Oracle and scored by the PL/SQL trigger, procedures and functions |
+| **DEMO MODE** (public link) | `https://ashmita-dev.github.io/SmartBank/`, any device | The interface and the fraud rules, **simulated in the browser**. Every page is labelled; nothing reaches Oracle. |
+
+**Demo logins:** `user@smartbank.com` (customer) and `admin@smartbank.com` (analyst). On the
+login page, **Use demo account** fills in the email.
+* Demo mode: no password is needed.
+* Laptop with the older REST module (current state): any password is accepted, and a notice says
+  the password is not checked.
+* Laptop after `scripts\register-endpoints.ps1`: the passwords chosen in that script, checked by Oracle.
 
 ## Before the presentation
 
-* Public site: open `…/ords/sb/api/health` (link in the README). It should say `"status":"ok"`.
-  If the database was stopped for inactivity, start it in the Oracle Cloud console and wait about 5 minutes.
-* Local: `scripts\start-backend.ps1`, then `npm run dev` in `frontend/`.
-* Sign in as the analyst → **System & Settings → Test all endpoints** → all 11 healthy.
+* Local: `scripts\start-backend.ps1` (accept the UAC prompt), then `npm run dev` in `frontend/`.
+* Sign in as the analyst → **System & Settings → Test all endpoints**. With the older module,
+  `GET /health` shows as failed (it does not exist there); the other 10 should be healthy.
+* Public link: open it once. You should see the amber **DEMO MODE** banner after signing in.
 
 ## 1. The problem and the design (1 min)
 
@@ -75,5 +81,6 @@ ORDER BY e.event_id DESC FETCH FIRST 10 ROWS ONLY;
 * **Why a compound trigger?** `DETECT_FRAUD` queries `BANK_TRANSACTION`. In a row-level trigger that raises ORA-04091 (mutating table), so the IDs are collected per row and processed after the statement.
 * **Does the API run fraud detection itself?** No. It inserts the row; `TRG_FRAUD_MONITOR` runs `DETECT_FRAUD` once. The API then reads the result back. For LOW risk, which stores no alert, it reports the score from `CALCULATE_RISK`, a read-only function.
 * **Is the login secure?** For a demo, yes. Passwords are salted PBKDF2 hashes in Oracle, sessions are random tokens stored only as hashes, and every handler checks the role and customer scope. The limit is that the logins are shared demo accounts; a real bank would use individual identities with MFA.
-* **Where does it run?** Oracle Autonomous Database (Always Free) on Oracle Cloud, with ORDS managed by Oracle. Nothing runs on the laptop.
+* **Where does it run?** Oracle XE and ORDS on the laptop (ORDS listens on 127.0.0.1 only). The public link is a clearly labelled browser simulation, because no free, persistent Oracle hosting was available without a new account or card verification (docs/DEPLOYMENT.md).
+* **How do we know the simulation matches Oracle?** Replaying the seed through the JavaScript rules gives the same 84 alerts, 3 HIGH and 3 FLAGGED that Oracle produced from the same script; an automated test checks it.
 * **Why not move balances?** The scope is fraud detection. A real transfer would debit and credit both accounts atomically in one PL/SQL procedure.
