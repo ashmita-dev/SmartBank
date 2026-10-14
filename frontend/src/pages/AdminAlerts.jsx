@@ -60,6 +60,8 @@ function AdminAlerts() {
     );
     setSelected(null);
     setNotice(`Alert #${alertId} saved as ${formatLabel(status)} in FRAUD_ALERT.`);
+    // Reload so counts and ordering reflect what Oracle now stores.
+    refresh();
   }
 
   if (loading) {

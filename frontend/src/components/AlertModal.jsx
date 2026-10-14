@@ -56,7 +56,16 @@ function AlertModal({ alert, onClose, onUpdated }) {
     try {
       const result = await updateAlert(alert.alert_id, status);
       // The API echoes the stored row; trust the database over the request.
-      const saved = String(result?.status || result?.items?.[0]?.status || "").toUpperCase();
+      let saved = String(result?.status || result?.items?.[0]?.status || "").toUpperCase();
+
+      // No status echoed: read the row back rather than assume the write stuck.
+      if (!saved) {
+        const stored = await getAlertById(alert.alert_id);
+        saved = String(stored?.status || stored?.items?.[0]?.status || "").toUpperCase();
+        if (!saved) {
+          throw new Error("The update was sent, but the alert could not be read back to confirm it. Refresh the alert list to check.");
+        }
+      }
 
       if (saved && saved !== status) {
         throw new Error(
@@ -64,7 +73,7 @@ function AlertModal({ alert, onClose, onUpdated }) {
         );
       }
 
-      onUpdated(alert.alert_id, saved || status);
+      onUpdated(alert.alert_id, saved);
     } catch (err) {
       setError(err);
     } finally {

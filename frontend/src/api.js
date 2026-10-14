@@ -10,6 +10,10 @@ export const API_BASE_URL = (
 // rows that client-side search and filtering see the whole demo dataset.
 const COLLECTION_LIMIT = 1000;
 
+// A request that takes longer than this is abandoned with a clear message,
+// so a hung ORDS/database connection never leaves a page spinning forever.
+const REQUEST_TIMEOUT_MS = 15000;
+
 export class ApiError extends Error {
   constructor(message, status = 0) {
     super(message);
@@ -69,43 +73,65 @@ function errorMessage(body, status, endpoint, method) {
 }
 
 async function request(endpoint, options = {}) {
+  const { signal, timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const method = fetchOptions.method || "GET";
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
+
   let response;
 
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
+      ...fetchOptions,
+      signal: controller.signal,
       headers: {
         Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
+        ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+        ...(fetchOptions.headers || {}),
       },
     });
-  } catch {
+  } catch (err) {
+    if (timedOut) {
+      throw new ApiError(
+        `${method} ${routeName(endpoint)} did not answer within ${timeoutMs / 1000} s. ` +
+          "ORDS may be waiting on the database; check scripts\\start-backend.ps1.",
+        0
+      );
+    }
+    if (signal?.aborted) throw err; // cancelled by the caller; not an API failure
     throw new ApiError(
       `Cannot reach the SmartBank API at ${API_BASE_URL}. Check that Oracle XE and ORDS are running.`,
       0
     );
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 
   const body = await readBody(response);
 
   if (!response.ok) {
-    throw new ApiError(
-      errorMessage(body, response.status, endpoint, options.method || "GET"),
-      response.status
-    );
+    throw new ApiError(errorMessage(body, response.status, endpoint, method), response.status);
   }
 
   return body;
 }
 
-function items(body) {
+function items(body, endpoint) {
   if (Array.isArray(body)) return body;
-  return body?.items || [];
+  if (body && typeof body === "object" && Array.isArray(body.items)) return body.items;
+  // Anything else (HTML error page, proxy text, wrong handler) is not data.
+  throw new ApiError(`GET ${routeName(endpoint)} returned an unexpected response format (expected a JSON list).`, 200);
 }
 
-async function collection(endpoint, params = {}) {
-  return items(await request(`${endpoint}${buildQuery({ ...params, limit: COLLECTION_LIMIT })}`));
+async function collection(endpoint, params = {}, options = {}) {
+  return items(await request(`${endpoint}${buildQuery({ ...params, limit: COLLECTION_LIMIT })}`, options), endpoint);
 }
 
 export function getKPIs() {
@@ -182,7 +208,7 @@ export async function probeEndpoints(paths, { customerId } = {}) {
         : `${path}?limit=1${path === "/accounts" || path === "/devices" ? `&customer_id=${customerId ?? 1}` : ""}`;
 
       try {
-        await request(url);
+        await request(url, { timeoutMs: 8000 });
         return { path, ok: true, status: 200 };
       } catch (err) {
         return { path, ok: false, status: err.status ?? 0, message: err.message };
