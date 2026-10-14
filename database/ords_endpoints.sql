@@ -423,6 +423,35 @@ BEGIN
                  ORDER BY d.device_id'
   );
 
+  -- Customer profile: the customer portal reads the signed-in customer's
+  -- identity from the database instead of hard-coding it.
+  ORDS.DEFINE_TEMPLATE(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'customers/:id'
+  );
+
+  ORDS.DEFINE_HANDLER(
+    p_module_name => 'smartbank.api',
+    p_pattern => 'customers/:id',
+    p_method => 'GET',
+    p_source_type => ORDS.source_type_collection_item,
+    p_source => 'SELECT c.customer_id, c.first_name, c.last_name,
+                        c.first_name || '' '' || c.last_name AS customer_name,
+                        c.email, c.phone, c.created_at,
+                        CASE
+                          WHEN EXISTS (SELECT 1 FROM individual_customer ic
+                                        WHERE ic.customer_id = c.customer_id) THEN ''INDIVIDUAL''
+                          WHEN EXISTS (SELECT 1 FROM business_customer bc
+                                        WHERE bc.customer_id = c.customer_id) THEN ''BUSINESS''
+                        END AS customer_type,
+                        (SELECT MIN(addr.city) FROM customer_address addr
+                          WHERE addr.customer_id = c.customer_id) AS home_city,
+                        (SELECT MIN(addr.state) FROM customer_address addr
+                          WHERE addr.customer_id = c.customer_id) AS home_state
+                 FROM customer c
+                 WHERE c.customer_id = TO_NUMBER(:id)'
+  );
+
   COMMIT;
 
 END;

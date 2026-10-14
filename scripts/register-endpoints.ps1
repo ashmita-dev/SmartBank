@@ -1,23 +1,33 @@
 <#
 .SYNOPSIS
-  Publishes database/ords_endpoints.sql as SMARTBANK_USER and verifies the API.
+  Publishes the ORDS REST module and the demo customer profile as SMARTBANK_USER,
+  then verifies the API.
 
 .DESCRIPTION
+  Runs, in one sqlplus session:
+    1. database/ords_endpoints.sql         - redefines the smartbank.api module
+       (13 handlers, incl. GET /accounts, /merchants, /devices, /customers/:id).
+       Safe to re-run: the module is replaced, never duplicated.
+    2. database/14_demo_customer_profile.sql - renames demo customer #1 to
+       Ashmita Mazumdar (one guarded UPDATE; skip with -SkipProfile).
+
   Prompts for the SMARTBANK_USER password with a hidden prompt. The password is
   sent to sqlplus on standard input only: it is not echoed, not written to a
-  file, and not placed on the command line. The endpoint script redefines the
-  whole smartbank.api module, so running it again is safe.
+  file, and not placed on the command line.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
 #>
 param(
     [string]$ConnectString = "localhost:1521/XEPDB1",
-    [string]$ApiBase = "http://localhost:8080/ords/smartbank/sb/api"
+    [string]$ApiBase = "http://localhost:8080/ords/smartbank/sb/api",
+    [switch]$SkipProfile
 )
 
 $ErrorActionPreference = "Stop"
-$script = Resolve-Path (Join-Path $PSScriptRoot "..\database\ords_endpoints.sql")
+$endpoints = Resolve-Path (Join-Path $PSScriptRoot "..\database\ords_endpoints.sql")
+$profileSql = Resolve-Path (Join-Path $PSScriptRoot "..\database\14_demo_customer_profile.sql")
+$runProfile = if ($SkipProfile) { "" } else { "@`"$profileSql`"" }
 
 $secure = Read-Host "SMARTBANK_USER password" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
@@ -28,7 +38,8 @@ try {
 WHENEVER SQLERROR EXIT SQL.SQLCODE
 SET DEFINE OFF
 CONNECT smartbank_user/"$plain"@$ConnectString
-@"$script"
+@"$endpoints"
+$runProfile
 EXIT
 "@
     $output = $sqlInput | sqlplus -S -L /nolog
@@ -38,18 +49,18 @@ EXIT
     Remove-Variable plain, sqlInput -ErrorAction SilentlyContinue
 }
 
-$output | Where-Object { $_ -match "ORA-|SP2-|completed|ERROR" } | ForEach-Object { Write-Host $_ }
+$output | Where-Object { $_ -match "ORA-|SP2-|completed|ERROR|row" } | ForEach-Object { Write-Host $_ }
 
 if ($code -ne 0) {
-    Write-Host "Endpoint registration failed (sqlplus exit code $code)." -ForegroundColor Red
+    Write-Host "Registration failed (sqlplus exit code $code). Nothing after the error was applied." -ForegroundColor Red
     exit $code
 }
 
-Write-Host "ords_endpoints.sql executed." -ForegroundColor Green
+Write-Host "ords_endpoints.sql executed$(if (-not $SkipProfile) { ' and demo customer profile applied' })." -ForegroundColor Green
 
-# Verify the endpoints that the current frontend needs.
-$checks = "kpis", "transactions", "alerts", "risk-distribution", "daily-analytics",
-          "analysts/workload", "accounts?customer_id=1", "merchants", "devices?customer_id=1"
+# Verify every read endpoint the frontend uses.
+$checks = "kpis", "transactions", "alerts", "alerts/81", "risk-distribution", "daily-analytics",
+          "analysts/workload", "accounts?customer_id=1", "merchants", "devices?customer_id=1", "customers/1"
 $failed = 0
 
 foreach ($path in $checks) {
@@ -67,4 +78,4 @@ if ($failed) {
     exit 1
 }
 
-Write-Host "All 9 endpoints respond." -ForegroundColor Green
+Write-Host "All $($checks.Count) read endpoints respond." -ForegroundColor Green
