@@ -75,8 +75,15 @@ SELECT pkg_fraud_detection.get_risk_level(85) FROM dual;    -- HIGH
 
 Optionally show `13_testing.sql` (15 tests) and `database/tests/day5_explain_plan_test.sql` (index usage).
 
+## Public read-only link (optional)
+
+If `scripts\start-public-demo.ps1 -Deploy` is running, the professor can open
+`https://ashmita-dev.github.io/SmartBank/` on any device: both portals with live Oracle data,
+transfers and alert actions disabled. Live fraud detection on a new transfer is shown on the laptop.
+
 ## Questions you may be asked
 
 * **Why a compound trigger?** `DETECT_FRAUD` queries `BANK_TRANSACTION`. Doing that in a row-level trigger would raise ORA-04091 (mutating table), so the IDs are collected per row and processed after the statement.
 * **Is the login secure?** No. It is a demo login checked in the browser. Production would use ORDS OAuth2 or another identity provider with server-side role checks.
+* **Is the public link safe?** It reaches only a read-only gateway that forwards 10 GET endpoints; ORDS and Oracle stay on localhost, and every write is refused.
 * **Why not move balances?** The project scope is fraud detection. A real transfer would debit and credit both accounts atomically in one PL/SQL procedure.

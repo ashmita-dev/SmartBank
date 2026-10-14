@@ -31,6 +31,7 @@ network handed out a different IP, the listener could not start and the dashboar
 | `...\OraDB21Home1\network\admin\tnsnames.ora` (`XE`, `LISTENER_XE`) | `(HOST = localhost)` |
 | Database parameter `LOCAL_LISTENER` | `(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))` |
 | `C:\ords-config\databases\smartbank\pool.xml` | `db.hostname = localhost` |
+| ORDS global `standalone.binds` (set 14 Oct 2026, evening) | `127.0.0.1,::1`. ORDS previously listened on every interface (`:::8080`) with a Windows Firewall allow rule for Java, so the unauthenticated API was reachable from the Wi-Fi network. Takes effect when ORDS is next restarted. Undo: `C:\ords\bin\ords.exe --config C:\ords-config config delete --global standalone.binds` |
 
 Backups of the original files sit next to them with the suffix `.bak-20261014`. To undo
 the parameter change: `ALTER SYSTEM SET local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST=10.168.41.144)(PORT=1521))' SCOPE=BOTH;`
@@ -155,16 +156,38 @@ npm run preview   # serve the build on http://localhost:4173
 In the analyst console, **System & Settings → Test all endpoints** checks every
 read-only endpoint against the live API.
 
-## 6. Hosting the frontend (optional)
+## 6. Public read-only demo (optional)
 
-`.github/workflows/deploy-frontend.yml` builds the frontend for GitHub Pages
-(`https://ashmita-dev.github.io/SmartBank/`). It runs **only when started manually**, and
-Pages must first be enabled once in **Settings → Pages → Source: GitHub Actions**.
+A hosted frontend cannot use `localhost`, and the ORDS module has no authentication, so ORDS
+and Oracle are never published. Instead:
 
-The hosted copy is the static interface only. It calls `http://localhost:8080/...`, so it
-shows **API offline** unless the visitor runs Oracle and ORDS on their own machine, and
-browsers may also block a public site from calling `localhost`. Do not point it at a public
-ORDS endpoint until that module is protected with OAuth2 and CORS is limited to the site.
+| Piece | File | Role |
+|---|---|---|
+| Static frontend | `.github/workflows/deploy-frontend.yml` | Builds with `BASE_PATH=/SmartBank/`, `VITE_API_BASE_URL=<gateway URL>`, `VITE_READ_ONLY=true`; copies `index.html` to `404.html` so deep links and refreshes work; fails on localhost/LAN/plain-http/port-8080 URLs; scans the bundle for credentials |
+| Read-only gateway | `gateway/server.mjs` (Node 18+, no dependencies) | Listens on `127.0.0.1:8787` only; forwards the 10 GET endpoints; rejects writes (`405`), unknown paths (`404`), bad parameters; `limit` ≤ 1000; 240 requests/min per client; CORS only for `ALLOWED_ORIGINS` (default `https://ashmita-dev.github.io`) |
+| HTTPS tunnel | `scripts/start-public-demo.ps1` | Starts the gateway and a Cloudflare quick tunnel (`cloudflared`, free, no account) and, with `-Deploy`, runs the workflow with the tunnel address |
+
+**One-time:** enable **Settings → Pages → Source: GitHub Actions**, and install
+`winget install --id Cloudflare.cloudflared`.
+
+**Each session:** start the backend, then
+`powershell -ExecutionPolicy Bypass -File scripts\start-public-demo.ps1 -Deploy` and keep the
+window open. The site is `https://ashmita-dev.github.io/SmartBank/`. Quick-tunnel addresses
+change on every start; for a stable address use a named Cloudflare tunnel on your own domain
+(needs a Cloudflare account) and run the workflow once with that URL.
+
+**What visitors get:** both portals with live Oracle data; transfers and alert actions are
+disabled with an explanation. If the laptop is off, pages say the backend is offline. A build
+without `VITE_API_BASE_URL` says it is not connected to a backend; it never falls back to
+`localhost` or to sample data.
+
+**CORS:** the browser talks only to the gateway, which answers `Access-Control-Allow-Origin`
+for the configured origin(s). ORDS's own CORS setting does not matter because browsers never
+reach ORDS directly. For local development the app calls ORDS directly from `localhost`.
+
+**Not suitable for a public URL:** tunnelling ORDS (port 8080) itself. Anyone could create
+transactions and change alerts. Full public write access would need ORDS OAuth2 (or another
+identity provider) and server-side role checks first.
 
 ## 7. Troubleshooting
 

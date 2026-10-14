@@ -18,6 +18,25 @@ React (Vite) ──HTTP/JSON──▶ ORDS (localhost:8080) ──▶ Oracle 21c
                                                         └─ views, indexes, PKG_FRAUD_DETECTION
 ```
 
+## Live demo
+
+> **Status: not public yet.** There is no public URL at the moment, and none is listed here
+> until one has been deployed and tested.
+
+SmartBank's data lives in an Oracle database on the author's laptop, so a public demo has three parts:
+
+| Part | Where | State |
+|---|---|---|
+| Frontend (this React app) | GitHub Pages, `https://ashmita-dev.github.io/SmartBank/` | Workflow ready; **Pages not enabled yet** |
+| Read-only API gateway (`gateway/server.mjs`) | Laptop, `127.0.0.1:8787` | Built and tested against the live database |
+| HTTPS tunnel to the gateway (Cloudflare quick tunnel) | Laptop → `https://<random>.trycloudflare.com` | Needs `cloudflared` installed and the author's approval |
+
+When it is running, the public site shows the **real Oracle data** in both portals but is
+**read-only**: New Transfer and alert-status buttons are disabled, and the gateway refuses
+every write. It works only while the laptop, Oracle, ORDS and the tunnel are running; otherwise
+every page says the backend is offline. For the full experience, including live fraud detection
+on new transfers, run the project locally (Quick start below).
+
 ## Technology
 
 | Layer | Technology |
@@ -132,10 +151,46 @@ npm run dev        # http://localhost:5173
 
 The API URL can be overridden with `VITE_API_BASE_URL` (see `frontend/.env.example`).
 
+## Deployment
+
+Hosting the frontend does not host Oracle or ORDS, and the ORDS module has no authentication,
+so ORDS (port 8080) and Oracle (1521) are **never** exposed. The public path is:
+
+```
+Browser ──HTTPS──▶ GitHub Pages (static React build, VITE_READ_ONLY=true)
+   │
+   └──HTTPS──▶ Cloudflare quick tunnel ──▶ gateway/server.mjs (127.0.0.1:8787, GET-only allow-list)
+                                             └──▶ ORDS (127.0.0.1:8080) ──▶ Oracle XE (127.0.0.1:1521)
+```
+
+The gateway forwards only the 10 read-only GET endpoints, checks query parameters, caps page
+size, rate-limits clients, strips ORDS's internal links, sends CORS headers only for
+`https://ashmita-dev.github.io`, and answers `405` to any write. Oracle credentials stay in the
+ORDS wallet on the laptop; the browser bundle contains none (CI also checks for them).
+
+One-time setup:
+1. GitHub → **Settings → Pages → Source: GitHub Actions**.
+2. `winget install --id Cloudflare.cloudflared`
+
+Each time you want the demo online (keep the window open):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1        # Oracle + ORDS
+powershell -ExecutionPolicy Bypass -File scripts\start-public-demo.ps1 -Deploy
+```
+
+The second script starts the gateway and tunnel, prints the `https://….trycloudflare.com/api`
+address, and runs the **Deploy frontend** workflow with it. A quick-tunnel address changes on
+every start, so the workflow is re-run each time. Details: [docs/SETUP.md](docs/SETUP.md) §6.
+
 ## Testing
 
 * `database/13_testing.sql` holds 15 database tests (risk rules, triggers, cursor, package, constraints, rollback).
 * `npm run lint` and `npm run build` in `frontend/`.
+* Latest results (14 Oct 2026, all actually run): lint and build pass; live read-only browser suites
+  26/26 and 35/35; hosted build through the read-only gateway against live Oracle 19/19 (every
+  route by direct link and refresh, no request to port 8080, no writes); offline/no-backend states
+  pass; mocked write-path suite 37/37. Details in [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 * **System & Settings → Test all endpoints** sends one read-only GET to each of the 10 read
   endpoints and shows the HTTP status, row count and latency.
 * Status and results of the latest verification: [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
@@ -147,5 +202,7 @@ The API URL can be overridden with `VITE_API_BASE_URL` (see `frontend/.env.examp
 * **Customer isolation is a frontend filter.** The portal requests only customer #1's rows; the API itself would return any customer's data.
 * **Transfers do not move money.** They are recorded in `BANK_TRANSACTION` and screened for fraud, but balances are not changed.
 * **Rule-based scoring.** The risk score is a point total from fixed rules, not a probability or a machine-learning prediction.
-* The backend runs locally. A hosted frontend alone cannot reach a local Oracle/ORDS.
-  A manual GitHub Pages workflow is provided for the static interface (see SETUP §6), but it has not been enabled.
+* **The backend runs on one laptop.** The public demo (see Live demo) is read-only and is
+  online only while that laptop, Oracle, ORDS and the tunnel are running.
+* **Demo logins are public by design.** They are visible in the page source and give no real
+  access control; the read-only gateway is what protects the data from changes.

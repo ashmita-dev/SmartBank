@@ -184,6 +184,51 @@ data that failed to load shows "—" instead of 0.
 **Not run:** any live write (transfer POST or alert PUT against Oracle) and `13_testing.sql`
 (tests 1–9 commit rows). Both need your approval.
 
+### Seventh pass: public deployment preparation (14 Oct 2026, evening)
+
+**Audit findings**
+* ORDS listened on **all interfaces** (`:::8080`), and Windows Firewall allowed Java inbound on
+  the Public profile, so the unauthenticated module, including POST/PUT, was reachable from the
+  local network. Fixed: `standalone.binds = 127.0.0.1,::1` (verified on a temporary second ORDS
+  instance on port 8081: it answers on 127.0.0.1 and ::1 and refuses the LAN address). The running
+  instance on 8080 picks it up at its next restart.
+* The production build fell back to `http://localhost:8080/...`, so a hosted copy would have called
+  each visitor's own computer. Fixed: the localhost default applies only when the page is served
+  from localhost; otherwise the app says no backend is configured.
+* The ORDS module has no authentication and is CORS-open. It must not be tunnelled directly.
+* No tunnel tool is installed. GitHub CLI is signed in; the repo is public; Pages is not enabled.
+
+**Built**
+* `gateway/server.mjs`: read-only GET allow-list gateway (no dependencies).
+* `VITE_READ_ONLY`: disables New Transfer and alert actions with an explanation; non-GET requests
+  are refused in the client too.
+* Health badge: every endpoint answering 502/503/504 now shows OFFLINE (not DEGRADED).
+* Workflow inputs `api_base_url` / `read_only`, URL validation, bundle credential scan.
+* `scripts/start-public-demo.ps1` (not run: it would expose the gateway publicly).
+* Page title "SmartBank · Fraud Detection" instead of "frontend".
+
+**Tests run**
+
+| Test | Result |
+|---|---|
+| Lint, production build | **Pass** |
+| Gateway against live ORDS: 11 GETs (incl. `/alerts/:id`) | **200**, no internal ORDS links in responses |
+| Gateway: POST/PUT/DELETE · unknown path · path traversal · `customers/1;drop` · foreign Origin · preflight | **405 · 404 · 404 · 404 · no CORS header · 204 with CORS** |
+| Gateway listens on | `127.0.0.1:8787` only |
+| Hosted build (`/SmartBank/`, read-only, via gateway, live Oracle): 10 routes by direct link, refresh, KPIs, diagnostics 10/10, disabled write actions, no request to `:8080`, no writes | **19/19** |
+| Hosted build, gateway up but backend down | **5/5** (OFFLINE badge, "backend is offline") |
+| Build without `VITE_API_BASE_URL`, served as `http://smartbank.test` | Says "not connected to a backend", no data, no localhost request (4/4 relevant checks; the 5th failed only because the Python test server has no SPA fallback) |
+| Bundle scan | No `localhost:8080`, no credential strings (only the intentional demo logins) |
+| Local mode: live suites | **26/26** and **35/35**, no writes |
+| Mocked write-path suite | **37/37** |
+
+**Data observed:** between test runs a new live transaction appeared: **#221** (16:24 IST,
+₹1,50,000, AC1000001 → QuickCash Loans, Lagos, DEV-IOS-0005), status **FLAGGED**, with **HIGH alert
+#101, score 80** (40 amount + 20 new device + 20 location), assigned to Kavita Rao. None of the test
+tools sent it (all recorded zero writes; the gateway logged none); it appears to have been submitted
+through the local app. It confirms the live trigger → alert → FLAGGED path. IDs jumped from 201/81 to
+221/101 because of Oracle identity caching, which is normal.
+
 ## Remaining work (needs you)
 
 1. ~~Run `scripts\register-endpoints.ps1`~~ **Done**: all 13 handlers are live and customer #1
@@ -200,12 +245,13 @@ data that failed to load shows "—" instead of 0.
 * Re-running `03_seed_data.sql` regenerates alerts through the trigger, so statuses return to OPEN.
 
 ## Deployment status
-**Not deployed.** The only provider available is GitHub: the CLI is authenticated and the repo
-is public, but Pages is not enabled. Enabling it is a repository settings change that was not
-made without your approval. Prepared instead:
-* `.github/workflows/deploy-frontend.yml`, a manual-only build-and-publish to GitHub Pages
-* sub-path support (`BASE_PATH` build variable and router `basename`), verified locally
+**Not public yet; no URL exists.** Everything that can be prepared without your approval is done
+and tested locally (see the seventh pass). Remaining steps, all yours:
+1. Enable GitHub Pages (Settings → Pages → Source: GitHub Actions). This is a repository setting.
+2. Install `cloudflared` (`winget install --id Cloudflare.cloudflared`).
+3. Restart ORDS once (`scripts\start-backend.ps1`) so it binds to localhost only.
+4. Run `scripts\start-public-demo.ps1 -Deploy` and keep the window open. This exposes the
+   read-only gateway (not ORDS) to the internet for as long as it runs.
 
-A hosted copy would show the interface only, with "API offline" for visitors. ORDS must not
-be exposed publicly while the module has no authentication. The supported demonstration
-setup is local.
+Limits: the public site is read-only, shows the synthetic demo data (including the demo customer
+name), and is online only while the laptop, Oracle, ORDS and the tunnel run.
