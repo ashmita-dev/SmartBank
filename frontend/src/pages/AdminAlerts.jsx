@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bell, ChevronRight, Search, Shield, ShieldCheck, X } from "lucide-react";
-import { getAlerts } from "../api";
+import { getAlerts, DEMO_MODE } from "../api";
 import AlertModal from "../components/AlertModal";
 import {
   EmptyState,
@@ -12,6 +12,7 @@ import {
   RiskBadge,
   StatusBadge,
   SummaryCard,
+  SimTag,
 } from "../components/ui";
 import useApiData from "../hooks/useApiData";
 import { formatCurrency, formatDate, formatLabel, matchesSearch } from "../utils/format";
@@ -59,7 +60,9 @@ function AdminAlerts() {
       current.map((alert) => (alert.alert_id === alertId ? { ...alert, status } : alert))
     );
     setSelected(null);
-    setNotice(`Alert #${alertId} saved as ${formatLabel(status)} in FRAUD_ALERT.`);
+    setNotice(DEMO_MODE
+      ? `Alert #${alertId} set to ${formatLabel(status)} in the demo simulation (this browser only, not Oracle).`
+      : `Alert #${alertId} saved as ${formatLabel(status)} in FRAUD_ALERT.`);
     // Reload so counts and ordering reflect what Oracle now stores.
     refresh();
   }
@@ -175,7 +178,7 @@ function AdminAlerts() {
                     }}
                   >
                     <td>
-                      <strong>#{alert.alert_id}</strong>
+                      <strong>#{alert.alert_id}<SimTag row={alert} /></strong>
                       <small>Txn #{alert.transaction_id} · {formatDate(alert.created_at, { withTime: false })}</small>
                     </td>
                     <td><RiskBadge level={alert.risk_level} /></td>

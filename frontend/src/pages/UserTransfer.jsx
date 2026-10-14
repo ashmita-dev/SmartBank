@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Info, ShieldAlert, ShieldCheck } from "lucide-react";
-import { READ_ONLY, READ_ONLY_MESSAGE, createTransaction, getDevices, getMerchants } from "../api";
+import { DEMO_MODE, READ_ONLY, READ_ONLY_MESSAGE, createTransaction, getDevices, getMerchants } from "../api";
 import { ErrorBanner, LoadingState, PageHeader, RiskBadge, StatusBadge } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
@@ -116,7 +116,7 @@ function UserTransfer() {
       });
 
       // The API answers with the committed row and the fraud engine's result.
-      if (!outcome?.transaction_id || outcome.risk_score == null) {
+      if (!outcome?.transaction_id) {
         throw new Error("The API answered without a transaction result. Open My Transactions to check whether it was recorded.");
       }
 
@@ -145,7 +145,9 @@ function UserTransfer() {
       <PageHeader
         eyebrow="MONEY TRANSFER"
         title="New Transfer"
-        description="Submits a TRANSFER to Oracle through POST /transactions. The fraud-monitoring trigger scores it the moment it is inserted, and the result below comes from the database."
+        description={DEMO_MODE
+          ? "Demo mode: the transfer is SIMULATED in your browser and scored by a JavaScript copy of the PL/SQL fraud rules. Nothing is sent to Oracle."
+          : "Submits a TRANSFER to Oracle through POST /transactions. The fraud-monitoring trigger scores it the moment it is inserted, and the result below comes from the database."}
       />
 
       <ErrorBanner error={error} onRetry={refresh} />
@@ -153,8 +155,10 @@ function UserTransfer() {
       <div className="notice info" role="note">
         <Info size={17} />
         <div>
-          <strong>Demonstration scope:</strong> the transfer is recorded in BANK_TRANSACTION and screened
-          by the fraud engine, but account balances are not debited or credited. No real money moves.
+          <strong>Demonstration scope:</strong>{" "}
+          {DEMO_MODE
+            ? "in demo mode the transfer is kept in this browser only and screened by the simulated rules. It is not inserted into BANK_TRANSACTION, and no money moves."
+            : "the transfer is recorded in BANK_TRANSACTION and screened by the fraud engine, but account balances are not debited or credited. No real money moves."}
         </div>
       </div>
 
@@ -279,7 +283,9 @@ function UserTransfer() {
               )}
 
               <button type="submit" className="primary-action transfer-button" disabled={!canSubmit}>
-                {submitting ? "Submitting to Oracle…" : "Submit transfer"}
+                {submitting
+                  ? DEMO_MODE ? "Simulating…" : "Submitting to Oracle…"
+                  : DEMO_MODE ? "Simulate transfer" : "Submit transfer"}
                 {!submitting && <ArrowRight size={17} />}
               </button>
             </form>
@@ -290,7 +296,7 @@ function UserTransfer() {
           <div className="panel-header">
             <div>
               <div className="section-label">WHAT HAPPENS NEXT</div>
-              <h3>Fraud screening pipeline</h3>
+              <h3>{DEMO_MODE ? "Fraud screening pipeline (in Oracle; simulated here)" : "Fraud screening pipeline"}</h3>
             </div>
             <div className="panel-icon purple">
               <ShieldCheck size={20} />
@@ -332,7 +338,7 @@ function RiskPreview({ amount, deviceIsNew, location, homeCity }) {
             {signals.map((s) => <li key={s}>{s}</li>)}
           </ul>
         )}
-        <span>Preview only. Recent-activity velocity is also scored by the database.</span>
+        <span>Preview only. Recent-activity velocity is also scored{DEMO_MODE ? " by the simulation" : " by the database"}.</span>
       </div>
     </div>
   );
@@ -340,7 +346,9 @@ function RiskPreview({ amount, deviceIsNew, location, homeCity }) {
 
 function TransferResult({ result, onReset }) {
   const alert = result.alert;
-  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
+  const reasons = Array.isArray(result.reasons)
+    ? result.reasons
+    : String(alert?.reason || "").split(";").map((r) => r.trim()).filter(Boolean);
 
   return (
     <div className="transfer-success">
@@ -348,23 +356,45 @@ function TransferResult({ result, onReset }) {
         {alert ? <AlertTriangle size={30} /> : <CheckCircle2 size={30} />}
       </div>
 
-      <h2>Transaction #{result.transaction_id} recorded</h2>
-
-      <p>
-        {formatCurrency(result.amount)} TRANSFER from {result.accountNumber}
-        {result.merchant ? ` to ${result.merchant}` : ""} was inserted into BANK_TRANSACTION with
-        status <StatusBadge status={result.transaction_status} />
-      </p>
+      {result.simulated ? (
+        <>
+          <h2>Simulated transaction #{result.transaction_id}</h2>
+          <p className="sim-result-note">
+            <strong>SIMULATED, not processed by Oracle.</strong> This result was calculated in your browser
+            by a JavaScript copy of CALCULATE_RISK / DETECT_FRAUD. It was not inserted into BANK_TRANSACTION
+            and no PL/SQL ran.
+          </p>
+          <p>
+            {formatCurrency(result.amount)} TRANSFER from {result.accountNumber}
+            {result.merchant ? ` to ${result.merchant}` : ""}: simulated status{" "}
+            <StatusBadge status={result.transaction_status} />
+          </p>
+        </>
+      ) : (
+        <>
+          <h2>Transaction #{result.transaction_id} recorded</h2>
+          <p>
+            {formatCurrency(result.amount)} TRANSFER from {result.accountNumber}
+            {result.merchant ? ` to ${result.merchant}` : ""} was inserted into BANK_TRANSACTION with
+            status <StatusBadge status={result.transaction_status} />
+          </p>
+        </>
+      )}
 
       <div className={alert ? "result-alert" : "result-alert ok"} aria-live="polite">
         <div>
-          <RiskBadge level={result.risk_level} />
-          <strong>Risk score {result.risk_score}/100</strong>
+          <RiskBadge level={result.risk_level || alert?.risk_level || "LOW"} />
+          <strong>
+            {result.simulated ? "Simulated risk score" : "Risk score"}{" "}
+            {(result.risk_score ?? alert?.risk_score) != null
+              ? `${result.risk_score ?? alert.risk_score}/100`
+              : "below 40 (not reported by this API version)"}
+          </strong>
         </div>
         {alert ? (
           <>
             <p>
-              Fraud alert #{alert.alert_id} ({alert.status}) was created for analyst review.
+              {result.simulated ? "Simulated fraud alert" : "Fraud alert"} #{alert.alert_id} ({alert.status}) was created for analyst review.
               {result.transaction_status === "FLAGGED" ? " HIGH risk also flagged the transaction." : ""}
             </p>
             {reasons.length > 0 && (
@@ -374,7 +404,10 @@ function TransferResult({ result, onReset }) {
             )}
           </>
         ) : (
-          <p>No fraud alert was raised: CALCULATE_RISK scored it below the MEDIUM threshold of 40.</p>
+          <p>
+            No fraud alert was raised: {result.simulated ? "the simulated rules scored" : "CALCULATE_RISK scored"} it
+            below the MEDIUM threshold of 40.
+          </p>
         )}
       </div>
 

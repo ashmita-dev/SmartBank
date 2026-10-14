@@ -13,14 +13,31 @@ const LOCAL_ORDS_URL = "http://localhost:8080/ords/smartbank/sb/api";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
 const servedLocally = typeof window !== "undefined" && LOCAL_HOSTS.includes(window.location.hostname);
 
-export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || (servedLocally ? LOCAL_ORDS_URL : "")
-).replace(/\/+$/, "");
+// DEMO MODE (VITE_DEMO_MODE=true): the public GitHub Pages build when no
+// Oracle backend is reachable. Requests are answered by an in-browser
+// simulation (src/demo/), never by Oracle, and the UI labels every result as
+// simulated. REAL ORACLE MODE is every other build.
+export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 
-export const API_CONFIGURED = Boolean(API_BASE_URL);
+export const API_BASE_URL = DEMO_MODE
+  ? ""
+  : (import.meta.env.VITE_API_BASE_URL || (servedLocally ? LOCAL_ORDS_URL : "")).replace(/\/+$/, "");
+
+export const API_CONFIGURED = DEMO_MODE || Boolean(API_BASE_URL);
+
+// The API is on this computer (local development against the laptop's ORDS).
+export const LOCAL_API = !DEMO_MODE && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/)/.test(API_BASE_URL);
+
+export const LEGACY_LOCAL_MESSAGE =
+  "Local Oracle API without server-side sign-in detected (the older smartbank.api module). Data and transfers are real Oracle, but the password is not checked. Run scripts\register-endpoints.ps1 to install the authenticated API.";
+
+export const DEMO_MESSAGE =
+  "DEMO MODE: this public copy is not connected to Oracle. Data and fraud results are simulated in your browser with a JavaScript copy of the PL/SQL rules; nothing is saved to the database.";
 
 // Which Oracle database this build talks to, for labels only (from the URL).
-export const DATABASE_LABEL = /\.oraclecloudapps\.com/i.test(API_BASE_URL)
+export const DATABASE_LABEL = DEMO_MODE
+  ? "None: browser simulation (demo mode)"
+  : /\.oraclecloudapps\.com/i.test(API_BASE_URL)
   ? "Oracle Autonomous Database (OCI)"
   : /localhost|127\.0\.0\.1/.test(API_BASE_URL)
     ? "Oracle Database 21c XE (local)"
@@ -155,6 +172,18 @@ async function request(endpoint, options = {}) {
 
   if (READ_ONLY && method !== "GET" && !endpoint.startsWith("/auth/")) {
     throw new ApiError(READ_ONLY_MESSAGE, 405);
+  }
+
+  if (DEMO_MODE) {
+    const { handleDemoRequest } = await import("./demo/demoApi.js");
+    const reply = await handleDemoRequest(method, endpoint, fetchOptions.body, sessionToken);
+    if (reply.status >= 400) {
+      if (reply.status === 401 && sessionToken && !endpoint.startsWith("/auth/login")) {
+        window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      }
+      throw new ApiError(errorMessage(reply.body, reply.status, endpoint, method), reply.status);
+    }
+    return reply.body;
   }
   const controller = new AbortController();
   let timedOut = false;

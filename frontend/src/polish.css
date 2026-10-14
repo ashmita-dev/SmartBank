@@ -1254,3 +1254,105 @@ button.system-status {
 .field-error { color: var(--sb-red); }
 
 .transfer-form input[aria-invalid="true"] { border-color: var(--sb-red); }
+
+/* ---- DEMO MODE (public build without an Oracle backend) ---- */
+.demo-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 191, 84, 0.45);
+  border-radius: 12px;
+  background: rgba(255, 191, 84, 0.09);
+  color: var(--sb-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.demo-banner > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--sb-amber);
+}
+
+.demo-banner > div {
+  flex: 1;
+}
+
+.demo-banner strong {
+  color: var(--sb-amber);
+}
+
+.demo-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 191, 84, 0.45);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sb-amber);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.demo-banner button:focus-visible {
+  outline: 2px solid var(--sb-amber);
+  outline-offset: 2px;
+}
+
+.demo-banner-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.live-status.demo,
+.system-status.demo strong {
+  color: var(--sb-amber);
+}
+
+.live-status.demo .live-dot,
+.system-status.demo .status-dot {
+  background: var(--sb-amber);
+  box-shadow: 0 0 10px rgba(255, 191, 84, 0.7);
+}
+
+.system-status.demo {
+  border-color: rgba(255, 191, 84, 0.35);
+}
+
+.sim-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 191, 84, 0.5);
+  border-radius: 999px;
+  color: var(--sb-amber);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .demo-banner {
+    flex-wrap: wrap;
+  }
+}
+
+.sim-result-note {
+  max-width: 460px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(255, 191, 84, 0.6);
+  border-radius: 10px;
+  color: var(--sb-text-2);
+  font-size: 13px;
+  text-align: left;
+}
+
+.sim-result-note strong {
+  color: var(--sb-amber);
+}

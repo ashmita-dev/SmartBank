@@ -31,6 +31,7 @@ import {
   getKPIs,
   getRiskDistribution,
   getTransactions,
+  DEMO_MODE,
 } from "../api";
 import AlertModal from "../components/AlertModal";
 import {
@@ -132,9 +133,9 @@ function AdminDashboard() {
           </h1>
 
           <p>
-            Every transaction inserted into Oracle is scored by the PL/SQL
-            fraud engine. Suspicious activity raises an alert that is assigned
-            to the analyst with the lightest workload.
+            {DEMO_MODE
+              ? "Demo mode: these figures are simulated in your browser from the project's synthetic seed data, scored by a JavaScript copy of the PL/SQL rules. They are not read from Oracle."
+              : "Every transaction inserted into Oracle is scored by the PL/SQL fraud engine. Suspicious activity raises an alert that is assigned to the analyst with the lightest workload."}
           </p>
         </div>
 
@@ -143,7 +144,7 @@ function AdminDashboard() {
             {error ? <AlertTriangle size={23} /> : <ShieldCheck size={23} />}
           </div>
           <div>
-            <strong>{error ? "Database unreachable" : "Connected to Oracle"}</strong>
+            <strong>{error ? (DEMO_MODE ? "Demo data unavailable" : "Database unreachable") : DEMO_MODE ? "Demo mode: not connected to Oracle" : "Connected to Oracle"}</strong>
             <span>
               {error
                 ? "Figures below may be missing"
@@ -167,7 +168,7 @@ function AdminDashboard() {
       <section className="kpi-grid">
         <KpiCard icon={<Users size={21} />} value={kpis.total_customers} label="Customers" footer="CUSTOMER table" tone="blue" />
         <KpiCard icon={<WalletCards size={21} />} value={kpis.total_accounts} label="Accounts" footer="Savings + current" tone="purple" />
-        <KpiCard icon={<Activity size={21} />} value={kpis.total_transactions} label="Transactions" footer="Recorded in Oracle" tone="cyan" />
+        <KpiCard icon={<Activity size={21} />} value={kpis.total_transactions} label="Transactions" footer={DEMO_MODE ? "Simulated in browser" : "Recorded in Oracle"} tone="cyan" />
         <KpiCard icon={<Shield size={21} />} value={kpis.flagged_transactions} label="Fraud Alerts" footer="Medium + high risk" tone="amber" />
         <KpiCard icon={<Bell size={21} />} value={kpis.open_alerts} label="Open Alerts" footer="Awaiting review" tone="red" to="/admin/alerts" />
         <KpiCard icon={<AlertTriangle size={21} />} value={kpis.high_risk_alerts} label="High Risk Alerts" footer="Score 70 – 100" tone="red" to="/admin/alerts" />

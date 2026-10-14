@@ -1,3 +1,4 @@
+import { DEMO_MODE } from "../api";
 import { Link } from "react-router-dom";
 import {
   Activity,
@@ -55,7 +56,9 @@ function UserDashboard() {
       <PageHeader
         eyebrow="PERSONAL BANKING"
         title={firstName ? `Welcome back, ${firstName}` : "Welcome back"}
-        description="Your accounts and recent activity, read live from the SmartBank Oracle database."
+        description={DEMO_MODE
+          ? "Your accounts and recent activity in the demo simulation (synthetic data in this browser, not Oracle)."
+          : "Your accounts and recent activity, read live from the SmartBank Oracle database."}
         actions={
           <>
             <RefreshButton onClick={refresh} refreshing={refreshing} label="Refresh dashboard" />

@@ -92,6 +92,33 @@ describe("transfer submission", () => {
     expect(screen.getByText(/No fraud alert was raised/)).toBeTruthy();
   });
 
+  it("accepts the older local handler's reply (no score for LOW risk)", async () => {
+    installFakeApi({
+      "POST /transactions": () => [201, { transaction_id: 225, transaction_status: "COMPLETED" }],
+    });
+    render(<App />);
+    await fillForm({ amount: "500", merchant: "1", device: "1", location: "Mumbai" });
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText("Transaction #225 recorded")).toBeTruthy();
+    expect(screen.getByText(/below 40 \(not reported by this API version\)/)).toBeTruthy();
+  });
+
+  it("uses the alert's score and reasons from the older local handler", async () => {
+    installFakeApi({
+      "POST /transactions": () => [201, {
+        transaction_id: 226, transaction_status: "FLAGGED",
+        alert: { alert_id: 230, risk_score: 80, risk_level: "HIGH", status: "OPEN", reason: "High transaction amount; Unrecognized device; " },
+      }],
+    });
+    render(<App />);
+    await fillForm({ amount: "150000" });
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText("Risk score 80/100")).toBeTruthy();
+    expect(screen.getByText("Unrecognized device")).toBeTruthy();
+  });
+
   it("shows the database's rejection and keeps the form", async () => {
     installFakeApi({
       "POST /transactions": () => [400, { error: "Cannot process transaction: account 1 is INACTIVE" }],

@@ -11,6 +11,7 @@ import {
   RefreshButton,
   StatusBadge,
   SummaryCard,
+  SimTag,
 } from "../components/ui";
 import useApiData from "../hooks/useApiData";
 import { attachAlerts, isUnderReview } from "../utils/fraud";
@@ -168,7 +169,7 @@ function AdminTransactions() {
                     }}
                   >
                     <td>
-                      <strong>#{t.transaction_id}</strong>
+                      <strong>#{t.transaction_id}<SimTag row={t} /></strong>
                       <small>{t.transaction_type}</small>
                     </td>
                     <td>

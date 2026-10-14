@@ -15,7 +15,8 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { API_BASE_URL, API_CONFIGURED, DATABASE_LABEL, READ_ONLY, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
+import { API_BASE_URL, API_CONFIGURED, DATABASE_LABEL, DEMO_MODE, LEGACY_LOCAL_MESSAGE, READ_ONLY, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
+import DemoBanner from "./DemoBanner";
 import { useAuth } from "../context/AuthContext";
 import { loadCustomerProfile } from "../utils/customerData";
 
@@ -39,7 +40,7 @@ const NAVIGATION = {
 const API_CHECK_INTERVAL_MS = 60000;
 
 function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, legacyLocal } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -128,12 +129,14 @@ function AppLayout() {
 
   const apiStatus = health.status;
   const failedNames = health.failed.map((f) => f.path).join(", ");
-  const statusLabel = {
-    checking: "Checking API…",
-    online: "API online",
-    degraded: "API degraded",
-    offline: "API offline",
-  }[apiStatus];
+  const statusLabel = DEMO_MODE
+    ? { checking: "Checking demo…", online: "Demo mode", degraded: "Demo degraded", offline: "Demo unavailable" }[apiStatus]
+    : {
+        checking: "Checking API…",
+        online: "API online",
+        degraded: "API degraded",
+        offline: "API offline",
+      }[apiStatus];
   const displayName = role === "user" ? profileName || user?.email : user?.name;
 
   return (
@@ -194,9 +197,9 @@ function AppLayout() {
         <div className="sidebar-footer">
           <button
             type="button"
-            className={`system-status ${apiStatus}`}
+            className={`system-status ${DEMO_MODE ? "demo" : apiStatus}`}
             onClick={checkApi}
-            title={`API: ${API_BASE_URL || "not configured"}${failedNames ? ` · Unavailable: ${failedNames}` : ""} · click to re-check`}
+            title={`${DEMO_MODE ? "Demo mode: browser simulation, no API" : `API: ${API_BASE_URL || "not configured"}`}${failedNames ? ` · Unavailable: ${failedNames}` : ""} · click to re-check`}
           >
             <span className="status-dot" />
             <div>
@@ -208,6 +211,8 @@ function AppLayout() {
                     : "Backend unreachable"
                   : apiStatus === "degraded"
                   ? `Unavailable: ${failedNames}`
+                  : DEMO_MODE
+                  ? "Simulated · not Oracle"
                   : READ_ONLY
                   ? "Oracle · read-only build"
                   : "Oracle · ORDS · signed in"}
@@ -245,9 +250,11 @@ function AppLayout() {
           </div>
 
           <div className="topbar-right">
-            <div className={`live-status ${apiStatus}`} aria-live="polite">
+            <div className={`live-status ${DEMO_MODE ? "demo" : apiStatus}`} aria-live="polite">
               <span className="live-dot" />
-              {{ online: "LIVE", degraded: "DEGRADED", offline: "OFFLINE" }[apiStatus] || "…"}
+              {DEMO_MODE
+                ? "DEMO MODE"
+                : { online: "LIVE", degraded: "DEGRADED", offline: "OFFLINE" }[apiStatus] || "…"}
             </div>
 
             <div className="profile">
@@ -279,6 +286,12 @@ function AppLayout() {
         </header>
 
         <div className="page-content" id="main-content" tabIndex={-1}>
+          {DEMO_MODE && <DemoBanner />}
+          {legacyLocal && (
+            <div className="notice warning" role="note">
+              <div>{LEGACY_LOCAL_MESSAGE}</div>
+            </div>
+          )}
           <Outlet />
         </div>
       </main>

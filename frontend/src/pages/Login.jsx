@@ -13,7 +13,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { API_CONFIGURED } from "../api";
+import { API_CONFIGURED, DEMO_MODE } from "../api";
 import { useAuth } from "../context/AuthContext";
 import "../App.css";
 
@@ -60,7 +60,7 @@ function Login() {
     if (loggingIn) return;
     setError("");
 
-    if (!email.trim() || !password) {
+    if (!email.trim() || (!password && !DEMO_MODE)) {
       setError("Please enter your email and password.");
       return;
     }
@@ -190,6 +190,20 @@ function Login() {
             </button>
           </div>
 
+          {DEMO_MODE && (
+            <div className="demo-banner" role="note">
+              <ShieldAlert size={16} />
+              <div>
+                <strong>DEMO MODE: not connected to Oracle.</strong>{" "}
+                <span>
+                  This public copy simulates the bank in your browser so the interface can be explored.
+                  Use <b>Use demo account</b>; no password is needed. Results are labelled as simulated. The
+                  genuine Oracle and PL/SQL demonstration runs on the author&apos;s computer.
+                </span>
+              </div>
+            </div>
+          )}
+
           {!API_CONFIGURED && (
             <div className="login-error" role="alert">
               <ShieldAlert size={14} />
@@ -272,7 +286,7 @@ function Login() {
               disabled={loggingIn || !API_CONFIGURED}
             >
               {loggingIn ? (
-                "Checking with Oracle…"
+                DEMO_MODE ? "Opening demo…" : "Checking with Oracle…"
               ) : (
                 <>
                   {isAnalyst ? "Enter Analyst Console" : "Sign in to SmartBank"}
@@ -285,7 +299,11 @@ function Login() {
           <div className="login-demo">
             <div className="login-demo-copy">
               <strong>PROJECT DEMO ACCESS</strong>
-              <span>Fills in the demo email for this role. Enter the demo password provided with the project.</span>
+              <span>
+                {DEMO_MODE
+                  ? "Fills in the demo email for this role. Demo mode needs no password."
+                  : "Fills in the demo email for this role. Enter the demo password provided with the project."}
+              </span>
             </div>
 
             <button
@@ -300,8 +318,9 @@ function Login() {
           <div className="login-security-note">
             <Shield size={13} />
             <span>
-              Academic demonstration with synthetic data. Sign-in is verified by
-              the Oracle database, which also enforces each role&apos;s access.
+              {DEMO_MODE
+                ? "Academic demonstration with synthetic data, simulated in this browser (demo mode)."
+                : "Academic demonstration with synthetic data. Sign-in is verified by the Oracle database, which also enforces each role's access."}
             </span>
           </div>
         </section>

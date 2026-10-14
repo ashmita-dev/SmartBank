@@ -1,3 +1,4 @@
+import { DEMO_MODE } from "../api";
 import { Lock, ShieldCheck, User } from "lucide-react";
 import { ErrorBanner, LoadingState, PageHeader } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
@@ -76,7 +77,11 @@ function UserSettings() {
           </div>
 
           <ul className="limits-list">
-            <li>Each new transaction is scored by the database fraud engine as soon as it is recorded.</li>
+            <li>
+              {DEMO_MODE
+                ? "In this demo build, new transactions are scored by a JavaScript copy of the fraud rules in your browser, not by Oracle."
+                : "Each new transaction is scored by the database fraud engine as soon as it is recorded."}
+            </li>
             <li>
               Transactions from {homeCity ? `outside ${homeCity}` : "outside your home city"}, from new devices,
               large amounts, or bursts of activity raise your risk score.
@@ -96,12 +101,19 @@ function UserSettings() {
             </div>
           </div>
 
+          {DEMO_MODE ? (
+            <p className="muted">
+              Demo mode: this sign-in is simulated in your browser (no password is checked and no server is
+              involved). In the real Oracle deployment the password is verified by the database.
+            </p>
+          ) : (
           <p className="muted">
             You are signed in with the demonstration login linked to customer #{user.customerId}. The
             password was checked by the Oracle database, which issued this session and only returns
             this customer&apos;s accounts, transactions and alerts. The demo login is shared, so profile
             and password changes are not offered.
           </p>
+          )}
         </div>
       </section>
     </>

@@ -118,3 +118,13 @@ export function SummaryCard({ icon, label, value, tone }) {
     </div>
   );
 }
+
+// DEMO MODE: marks rows a visitor created in the browser simulation.
+export function SimTag({ row }) {
+  if (!row?.simulated) return null;
+  return (
+    <span className="sim-tag" title="Created in demo mode: simulated in this browser, not stored in Oracle">
+      SIMULATED
+    </span>
+  );
+}

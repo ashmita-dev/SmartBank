@@ -9,6 +9,7 @@ import {
   PageHeader,
   RefreshButton,
   StatusBadge,
+  SimTag,
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
@@ -158,7 +159,7 @@ function UserTransactions() {
                             {incoming ? <ArrowDownLeft size={15} /> : <ArrowUpRight size={15} />}
                           </span>
                           <span>
-                            <strong>#{t.transaction_id}</strong>
+                            <strong>#{t.transaction_id}<SimTag row={t} /></strong>
                             <small>{t.transaction_type}</small>
                           </span>
                         </span>

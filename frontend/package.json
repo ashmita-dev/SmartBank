@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "node e2e/run-e2e.mjs"
+    "test:e2e": "node e2e/run-e2e.mjs",
+    "test:e2e:demo": "node e2e/run-demo-e2e.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",

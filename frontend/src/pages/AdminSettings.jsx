@@ -3,6 +3,7 @@ import { CheckCircle2, Clock, Database, Loader2, Lock, PlugZap, Shield, XCircle 
 import {
   API_BASE_URL,
   DATABASE_LABEL,
+  DEMO_MODE,
   getAccounts,
   getAlerts,
   getAnalystWorkload,
@@ -139,8 +140,15 @@ function AdminSettings() {
             </div>
           </div>
 
+          {DEMO_MODE && (
+            <p className="notice warning" role="note">
+              Demo mode: these checks run against the in-browser simulation, not against Oracle or ORDS.
+              A healthy result here does not mean a database is connected.
+            </p>
+          )}
+
           <p className="muted">
-            Each check sends one real, read-only GET request to Oracle through ORDS. Nothing is
+            In the Oracle build, each check sends one real, read-only GET request to Oracle through ORDS. Nothing is
             written. An endpoint is shown healthy only when it answered with HTTP 200 and valid JSON.
           </p>
 
