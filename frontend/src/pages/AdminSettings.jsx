@@ -2,12 +2,14 @@ import { useRef, useState } from "react";
 import { CheckCircle2, Clock, Database, Loader2, Lock, PlugZap, Shield, XCircle } from "lucide-react";
 import {
   API_BASE_URL,
+  DATABASE_LABEL,
   getAccounts,
   getAlerts,
   getAnalystWorkload,
   getCustomer,
   getDailyAnalytics,
   getDevices,
+  getHealth,
   getKPIs,
   getMerchants,
   getRiskDistribution,
@@ -18,6 +20,7 @@ import { formatDate } from "../utils/format";
 
 // Read-only GET endpoints that can be checked without changing data.
 const ENDPOINT_CHECKS = [
+  { path: "GET /health", run: getHealth },
   { path: "GET /kpis", run: getKPIs },
   { path: "GET /transactions", run: getTransactions },
   { path: "GET /alerts", run: getAlerts },
@@ -219,8 +222,8 @@ function AdminSettings() {
           </div>
 
           <div className="system-info-list">
-            <div><span>Database</span><strong>Oracle Database 21c XE (XEPDB1), schema SMARTBANK_USER</strong></div>
-            <div><span>API layer</span><strong>Oracle REST Data Services 26.2, module smartbank.api</strong></div>
+            <div><span>Database</span><strong>{DATABASE_LABEL}, schema SMARTBANK_USER</strong></div>
+            <div><span>API layer</span><strong>Oracle REST Data Services, module smartbank.api (session-authenticated)</strong></div>
             {DB_OBJECTS.map(({ kind, names }) => (
               <div key={kind}><span>{kind}</span><strong>{names}</strong></div>
             ))}
@@ -246,13 +249,13 @@ function AdminSettings() {
           </div>
 
           <ul className="limits-list">
-            <li><strong>Demo sign-in.</strong> The two logins are checked by JavaScript in the browser. Anyone who reads the page source can see them, so they are not real security.</li>
-            <li><strong>Roles are a screen layout, not a permission.</strong> Hiding analyst pages from the customer happens in React only. The API itself does not know who is calling.</li>
-            <li><strong>The API has no login.</strong> The ORDS module is published without OAuth2, so anyone who can reach port 8080 could read and change data. That is why Oracle and ORDS stay on this computer (localhost) and are never exposed to the internet.</li>
-            <li><strong>Customer isolation is a filter.</strong> The customer portal only requests customer #1’s records, but the server would return another customer’s data if asked directly.</li>
+            <li><strong>Server-side sign-in.</strong> Passwords are checked in Oracle against salted PBKDF2-SHA256 hashes, and Oracle issues an 8-hour session token. Only a hash of each token is stored.</li>
+            <li><strong>Roles are enforced by the database.</strong> Every API handler checks the session: customers cannot read analyst dashboards or change alerts, and analysts cannot submit customer transfers.</li>
+            <li><strong>Customer isolation is enforced in SQL.</strong> A customer session only ever receives that customer&apos;s accounts, transactions, alerts and profile, whatever it asks for.</li>
+            <li><strong>Shared demo logins.</strong> The two demonstration accounts are shared by everyone who is given the password, so this is access control for a demo, not for real customers. Write requests are rate-limited.</li>
             <li><strong>Transfers do not move money.</strong> New Transfer records a transaction and screens it for fraud; account balances are not debited or credited.</li>
             <li><strong>Rule-based detection.</strong> A risk score points to patterns worth reviewing. It does not prove fraud, and a low score does not prove a payment is safe.</li>
-            <li><strong>For production</strong> the API would need OAuth2 or another identity provider, server-side role checks in every handler, and HTTPS behind a secured gateway.</li>
+            <li><strong>For production</strong> a bank would use individual accounts with an identity provider (OAuth2/OIDC, multi-factor sign-in), audited administrative access and a web application firewall.</li>
           </ul>
         </div>
       </section>

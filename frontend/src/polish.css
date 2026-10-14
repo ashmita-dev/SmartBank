@@ -1068,6 +1068,18 @@ button.system-status {
   font-size: 12px;
 }
 
+.result-alert.ok {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(52, 211, 153, 0.06);
+}
+
+.result-reasons {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--sb-text-2);
+  font-size: 12.5px;
+}
+
 .transfer-success .modal-actions {
   justify-content: center;
   padding: 10px 0 0;

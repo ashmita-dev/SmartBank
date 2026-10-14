@@ -2,6 +2,10 @@
 // frontend/.env.example). Never put credentials in VITE_ variables: they are
 // bundled into the public JavaScript.
 //
+// Every endpoint except GET /health and POST /auth/login needs a session
+// token issued by the database (PKG_SMARTBANK_API). It is sent in the
+// X-Session-Token header; roles and customer scoping are enforced in Oracle.
+//
 // Without it, the local ORDS URL is used only when the page itself is served
 // from this computer (npm run dev / preview). A hosted copy never falls back
 // to localhost; it reports that no backend is configured instead.
@@ -15,12 +19,54 @@ export const API_BASE_URL = (
 
 export const API_CONFIGURED = Boolean(API_BASE_URL);
 
-// Public read-only demo (VITE_READ_ONLY=true): the gateway refuses writes, and
-// the UI disables the transfer and alert-status actions up front.
+// Which Oracle database this build talks to, for labels only (from the URL).
+export const DATABASE_LABEL = /\.oraclecloudapps\.com/i.test(API_BASE_URL)
+  ? "Oracle Autonomous Database (OCI)"
+  : /localhost|127\.0\.0\.1/.test(API_BASE_URL)
+    ? "Oracle Database 21c XE (local)"
+    : "Oracle Database";
+
+// Optional read-only build (VITE_READ_ONLY=true): the UI disables the
+// transfer and alert-status actions and the client refuses non-GET requests.
 export const READ_ONLY = import.meta.env.VITE_READ_ONLY === "true";
 
 export const READ_ONLY_MESSAGE =
-  "This public demo is read-only. Creating transactions and changing alert status work only in the local installation, where the request goes straight to Oracle.";
+  "This copy of SmartBank was built read-only. Creating transactions and changing alert status are disabled.";
+
+// ---- Session token -------------------------------------------------------
+// Kept in localStorage so a page refresh stays signed in; the database
+// decides whether it is still valid (8-hour expiry, revoked on sign-out).
+const SESSION_KEY = "smartbank_session";
+let sessionToken = null;
+
+export function setSessionToken(token) {
+  sessionToken = token || null;
+}
+
+export function loadStoredSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY));
+    if (!saved?.token || !saved?.user) return null;
+    if (saved.expires_at && new Date(saved.expires_at).getTime() <= Date.now()) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+export function storeSession(session) {
+  try {
+    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    else localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem("smartbank_user"); // pre-authentication builds
+  } catch {
+    // Storage unavailable (private mode): the session lasts until reload.
+  }
+}
+
+// Fired when the API answers 401 to a signed-in request (expired or revoked
+// session); AuthContext listens and returns the user to the login page.
+export const UNAUTHORIZED_EVENT = "smartbank:unauthorized";
 
 // ORDS paginates collection feeds (25-50 rows by default). Ask for enough
 // rows that client-side search and filtering see the whole demo dataset.
@@ -76,12 +122,20 @@ function errorMessage(body, status, endpoint, method) {
   }
 
   if (status === 404) {
-    return `The ${method} ${routeName(endpoint)} endpoint is not published in ORDS yet. ` +
-      "Run scripts\\register-endpoints.ps1 to register the latest API, then press Retry.";
+    return `The ${method} ${routeName(endpoint)} endpoint is not published in ORDS. ` +
+      "Install the latest API (docs/SETUP.md), then press Retry.";
   }
 
-  if (status === 571 || status === 503) {
-    return "ORDS is running but cannot connect to the Oracle database. Check the listener and the ORDS pool (scripts\\start-backend.ps1).";
+  if (status === 401) {
+    return "Your session has ended. Please sign in again.";
+  }
+
+  if (status === 429) {
+    return "The database is busy or a demo limit was reached. Please wait a moment and try again.";
+  }
+
+  if (status === 571 || status === 502 || status === 503 || status === 504) {
+    return "The SmartBank API is reachable but cannot get a database connection right now. Please retry in a minute.";
   }
 
   const detail = body && typeof body === "object" ? body.message || body.title : "";
@@ -99,7 +153,7 @@ async function request(endpoint, options = {}) {
     );
   }
 
-  if (READ_ONLY && method !== "GET") {
+  if (READ_ONLY && method !== "GET" && !endpoint.startsWith("/auth/")) {
     throw new ApiError(READ_ONLY_MESSAGE, 405);
   }
   const controller = new AbortController();
@@ -120,6 +174,7 @@ async function request(endpoint, options = {}) {
       headers: {
         Accept: "application/json",
         ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+        ...(sessionToken ? { "X-Session-Token": sessionToken } : {}),
         ...(fetchOptions.headers || {}),
       },
     });
@@ -127,13 +182,13 @@ async function request(endpoint, options = {}) {
     if (timedOut) {
       throw new ApiError(
         `${method} ${routeName(endpoint)} did not answer within ${timeoutMs / 1000} s. ` +
-          "ORDS may be waiting on the database; check scripts\\start-backend.ps1.",
+          "The database may be starting up or busy; please retry.",
         0
       );
     }
     if (signal?.aborted) throw err; // cancelled by the caller; not an API failure
     throw new ApiError(
-      `Cannot reach the SmartBank API at ${API_BASE_URL}. Check that Oracle XE and ORDS are running.`,
+      `Cannot reach the SmartBank API at ${API_BASE_URL}. Check your connection, or the backend may be offline.`,
       0
     );
   } finally {
@@ -144,6 +199,9 @@ async function request(endpoint, options = {}) {
   const body = await readBody(response);
 
   if (!response.ok) {
+    if (response.status === 401 && sessionToken && !endpoint.startsWith("/auth/login")) {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     throw new ApiError(errorMessage(body, response.status, endpoint, method), response.status);
   }
 
@@ -159,6 +217,25 @@ function items(body, endpoint) {
 
 async function collection(endpoint, params = {}, options = {}) {
   return items(await request(`${endpoint}${buildQuery({ ...params, limit: COLLECTION_LIMIT })}`, options), endpoint);
+}
+
+export function getHealth() {
+  return request("/health", { timeoutMs: 10000 });
+}
+
+export function login(email, password) {
+  return request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function getSession() {
+  return request("/auth/session");
+}
+
+export function logout() {
+  return request("/auth/logout", { method: "POST", body: "{}", timeoutMs: 5000 });
 }
 
 export function getKPIs() {

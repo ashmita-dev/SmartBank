@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, CheckCircle2, Info, ShieldAlert, ShieldCheck } from "lucide-react";
-import { READ_ONLY, READ_ONLY_MESSAGE, createTransaction, getAlerts, getDevices, getMerchants, getTransactions } from "../api";
+import { READ_ONLY, READ_ONLY_MESSAGE, createTransaction, getDevices, getMerchants } from "../api";
 import { ErrorBanner, LoadingState, PageHeader, RiskBadge, StatusBadge } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import useApiData from "../hooks/useApiData";
@@ -16,25 +16,6 @@ async function loadTransferData(customerId) {
   ]);
 
   return { ...customer, merchants, devices };
-}
-
-// Older ORDS handler returns 201 with no body: look the new row up instead.
-async function findCreatedTransaction(accountNumber, accountId, previousMaxId) {
-  const rows = await getTransactions(accountNumber);
-  const created = rows
-    .filter((t) => Number(t.account_id) === Number(accountId) && Number(t.transaction_id) > previousMaxId)
-    .sort((a, b) => Number(b.transaction_id) - Number(a.transaction_id))[0];
-
-  if (!created) return null;
-
-  const alerts = await getAlerts();
-  const alert = alerts.find((a) => Number(a.transaction_id) === Number(created.transaction_id));
-
-  return {
-    transaction_id: created.transaction_id,
-    transaction_status: created.transaction_status,
-    alert: alert || null,
-  };
 }
 
 const EMPTY_FORM = { accountId: "", merchantId: "", deviceId: "", amount: "", location: "" };
@@ -124,10 +105,8 @@ function UserTransfer() {
     setSubmitting(true);
     setSubmitError(null);
 
-    const previousMaxId = Math.max(0, ...(data?.transactions || []).map((t) => Number(t.transaction_id)));
-
     try {
-      let outcome = await createTransaction({
+      const outcome = await createTransaction({
         account_id: Number(values.accountId),
         merchant_id: Number(values.merchantId),
         device_id: Number(values.deviceId),
@@ -136,12 +115,9 @@ function UserTransfer() {
         location: values.location.trim(),
       });
 
-      if (!outcome?.transaction_id) {
-        outcome = await findCreatedTransaction(selectedAccount?.account_number, values.accountId, previousMaxId);
-      }
-
-      if (!outcome) {
-        throw new Error("The API accepted the request but the new transaction could not be found. Refresh your transactions to check.");
+      // The API answers with the committed row and the fraud engine's result.
+      if (!outcome?.transaction_id || outcome.risk_score == null) {
+        throw new Error("The API answered without a transaction result. Open My Transactions to check whether it was recorded.");
       }
 
       setResult({
@@ -169,7 +145,7 @@ function UserTransfer() {
       <PageHeader
         eyebrow="MONEY TRANSFER"
         title="New Transfer"
-        description="Submits a TRANSFER transaction to Oracle through POST /transactions. The fraud-monitoring trigger scores it the moment it is inserted."
+        description="Submits a TRANSFER to Oracle through POST /transactions. The fraud-monitoring trigger scores it the moment it is inserted, and the result below comes from the database."
       />
 
       <ErrorBanner error={error} onRetry={refresh} />
@@ -364,6 +340,7 @@ function RiskPreview({ amount, deviceIsNew, location, homeCity }) {
 
 function TransferResult({ result, onReset }) {
   const alert = result.alert;
+  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
 
   return (
     <div className="transfer-success">
@@ -379,20 +356,27 @@ function TransferResult({ result, onReset }) {
         status <StatusBadge status={result.transaction_status} />
       </p>
 
-      {alert ? (
-        <div className="result-alert">
-          <div>
-            <RiskBadge level={alert.risk_level} />
-            <strong>Risk score {alert.risk_score}/100</strong>
-          </div>
-          <p>Fraud alert #{alert.alert_id} was created for analyst review.</p>
-          <small>{alert.reason}</small>
+      <div className={alert ? "result-alert" : "result-alert ok"} aria-live="polite">
+        <div>
+          <RiskBadge level={result.risk_level} />
+          <strong>Risk score {result.risk_score}/100</strong>
         </div>
-      ) : (
-        <p className="muted">
-          No fraud alert was raised: the risk score was below the MEDIUM threshold of 40.
-        </p>
-      )}
+        {alert ? (
+          <>
+            <p>
+              Fraud alert #{alert.alert_id} ({alert.status}) was created for analyst review.
+              {result.transaction_status === "FLAGGED" ? " HIGH risk also flagged the transaction." : ""}
+            </p>
+            {reasons.length > 0 && (
+              <ul className="result-reasons">
+                {reasons.map((r) => <li key={r}>{r}</li>)}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>No fraud alert was raised: CALCULATE_RISK scored it below the MEDIUM threshold of 40.</p>
+        )}
+      </div>
 
       <p className="muted">Account balances were not changed (demonstration scope).</p>
 

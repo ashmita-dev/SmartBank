@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -13,12 +13,14 @@ import {
   UserRound,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { API_CONFIGURED } from "../api";
 import { useAuth } from "../context/AuthContext";
 import "../App.css";
 
 function Login() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, user } = useAuth();
+  const { login, isAuthenticated, user, notice } = useAuth();
+  const passwordRef = useRef(null);
 
   const [role, setRole] = useState("user");
   const [email, setEmail] = useState("");
@@ -45,20 +47,17 @@ function Login() {
     setShowPassword(false);
   }
 
+  // Demo identities are public; their passwords are not in this bundle.
+  // They are checked by the database (see README, "Demonstration login").
   function fillDemoAccount() {
-    if (role === "admin") {
-      setEmail("admin@smartbank.com");
-      setPassword("admin123");
-    } else {
-      setEmail("user@smartbank.com");
-      setPassword("user123");
-    }
-
+    setEmail(role === "admin" ? "admin@smartbank.com" : "user@smartbank.com");
     setError("");
+    passwordRef.current?.focus();
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
+    if (loggingIn) return;
     setError("");
 
     if (!email.trim() || !password) {
@@ -67,34 +66,17 @@ function Login() {
     }
 
     setLoggingIn(true);
+    const result = await login(email, password);
+    setLoggingIn(false);
 
-    setTimeout(() => {
-      const result = login(email, password);
+    if (!result.success) {
+      setError(result.message);
+      return;
+    }
 
-      if (!result.success) {
-        setError(result.message);
-        setLoggingIn(false);
-        return;
-      }
-
-      const expectedRole = role === "admin" ? "admin" : "user";
-
-      if (result.user.role !== expectedRole) {
-        setError(
-          role === "admin"
-            ? "This account does not have analyst access."
-            : "This account does not have customer access."
-        );
-        setLoggingIn(false);
-        return;
-      }
-
-      navigate(result.user.role === "admin" ? "/admin" : "/user", {
-        replace: true,
-      });
-
-      setLoggingIn(false);
-    }, 450);
+    // The account's role comes from the database; open the matching portal
+    // and say so if the other tab was selected.
+    navigate(result.user.role === "admin" ? "/admin" : "/user", { replace: true });
   }
 
   const isAnalyst = role === "admin";
@@ -162,7 +144,7 @@ function Login() {
           <div className="login-brand-footer">
             SmartBank Fraud Intelligence
             <br />
-            Oracle 21c XE • PL/SQL • ORDS • React
+            Oracle Database • PL/SQL • ORDS • React
           </div>
         </section>
 
@@ -208,7 +190,23 @@ function Login() {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="login-form">
+          {!API_CONFIGURED && (
+            <div className="login-error" role="alert">
+              <ShieldAlert size={14} />
+              <span>
+                This copy of SmartBank was built without an API address, so sign-in is unavailable.
+              </span>
+            </div>
+          )}
+
+          {notice && !error && (
+            <div className="login-error" role="status">
+              <ShieldAlert size={14} />
+              <span>{notice}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="login-form" noValidate>
             <div className="login-field">
               <label htmlFor="email">
                 {isAnalyst ? "Analyst email" : "Customer email"}
@@ -221,6 +219,7 @@ function Login() {
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  required
                   placeholder={
                     isAnalyst
                       ? "analyst@smartbank.com"
@@ -238,6 +237,8 @@ function Login() {
                 <LockKeyhole size={16} />
                 <input
                   id="password"
+                  ref={passwordRef}
+                  required
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -259,7 +260,7 @@ function Login() {
             </div>
 
             {error && (
-              <div className="login-error">
+              <div className="login-error" role="alert">
                 <ShieldAlert size={14} />
                 <span>{error}</span>
               </div>
@@ -268,10 +269,10 @@ function Login() {
             <button
               type="submit"
               className={`login-submit ${isAnalyst ? "analyst-submit" : ""}`}
-              disabled={loggingIn}
+              disabled={loggingIn || !API_CONFIGURED}
             >
               {loggingIn ? (
-                "Authenticating..."
+                "Checking with Oracle…"
               ) : (
                 <>
                   {isAnalyst ? "Enter Analyst Console" : "Sign in to SmartBank"}
@@ -284,7 +285,7 @@ function Login() {
           <div className="login-demo">
             <div className="login-demo-copy">
               <strong>PROJECT DEMO ACCESS</strong>
-              <span>Use the presentation account for this role.</span>
+              <span>Fills in the demo email for this role. Enter the demo password provided with the project.</span>
             </div>
 
             <button
@@ -292,22 +293,22 @@ function Login() {
               className="login-demo-button"
               onClick={fillDemoAccount}
             >
-              Use demo credentials
+              Use demo account
             </button>
           </div>
 
           <div className="login-security-note">
             <Shield size={13} />
             <span>
-              Academic demonstration: sign-in is checked in the browser with
-              demo accounts. Banking data is served live from Oracle via ORDS.
+              Academic demonstration with synthetic data. Sign-in is verified by
+              the Oracle database, which also enforces each role&apos;s access.
             </span>
           </div>
         </section>
       </div>
 
       <div className="login-footer">
-        SmartBank • Secure banking intelligence • Built with Oracle 21c XE + PL/SQL
+        SmartBank • Secure banking intelligence • Built with Oracle Database + PL/SQL
       </div>
     </div>
   );

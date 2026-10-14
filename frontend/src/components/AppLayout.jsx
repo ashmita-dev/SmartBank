@@ -15,7 +15,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { API_BASE_URL, API_CONFIGURED, READ_ONLY, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
+import { API_BASE_URL, API_CONFIGURED, DATABASE_LABEL, READ_ONLY, REQUIRED_ENDPOINTS, probeEndpoints } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { loadCustomerProfile } from "../utils/customerData";
 
@@ -205,14 +205,12 @@ function AppLayout() {
                 {apiStatus === "offline"
                   ? !API_CONFIGURED
                     ? "No backend configured"
-                    : READ_ONLY
-                    ? "Host computer is offline"
-                    : "Start Oracle XE + ORDS"
+                    : "Backend unreachable"
                   : apiStatus === "degraded"
                   ? `Unavailable: ${failedNames}`
                   : READ_ONLY
-                  ? "Oracle 21c XE · read-only demo"
-                  : "Oracle 21c XE · ORDS"}
+                  ? "Oracle · read-only build"
+                  : "Oracle · ORDS · signed in"}
               </span>
             </div>
           </button>
@@ -221,7 +219,7 @@ function AppLayout() {
             <Database size={19} />
             <div>
               <strong>SMARTBANK_USER</strong>
-              <span>Oracle Database 21c XE</span>
+              <span>{DATABASE_LABEL}</span>
             </div>
           </div>
         </div>

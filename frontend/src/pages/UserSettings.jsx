@@ -97,8 +97,10 @@ function UserSettings() {
           </div>
 
           <p className="muted">
-            This project uses a demo sign-in checked in the browser and linked to customer #{user.customerId}.
-            It is not production-grade authentication, so profile and password changes are not offered.
+            You are signed in with the demonstration login linked to customer #{user.customerId}. The
+            password was checked by the Oracle database, which issued this session and only returns
+            this customer&apos;s accounts, transactions and alerts. The demo login is shared, so profile
+            and password changes are not offered.
           </p>
         </div>
       </section>
