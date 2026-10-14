@@ -54,12 +54,24 @@ foreach ($s in $services) {
 # ORDS retries its connection, so no manual registration is required.
 
 # 2. ORDS ------------------------------------------------------------------
+# Pre-flight: without db.password in the pool wallet, ORDS starts but ignores
+# the pool and every request fails with HTTP 571 / ORA-01005.
+$ordsExe = Join-Path $OrdsHome "bin\ords.exe"
+$poolListing = & $ordsExe --config $OrdsConfig config --db-pool smartbank list 2>&1 | Out-String
+if ($poolListing -notmatch "db\.password") {
+    Write-Host ""
+    Write-Host "The ORDS pool 'smartbank' has no database password in its wallet." -ForegroundColor Red
+    Write-Host "Fix it first (hidden prompt, or -ResetPassword if the password is unknown):"
+    Write-Host "  powershell -ExecutionPolicy Bypass -File scripts\repair-ords-pool.ps1"
+    exit 1
+}
+
 $ordsListening = Get-NetTCPConnection -State Listen -LocalPort 8080 -ErrorAction SilentlyContinue
 if ($ordsListening) {
     Write-Host "Port 8080 is already in use - assuming ORDS is running." -ForegroundColor Yellow
 } else {
     Write-Host "Starting ORDS in a new window (close that window to stop ORDS)..."
-    Start-Process -FilePath (Join-Path $OrdsHome "bin\ords.exe") `
+    Start-Process -FilePath $ordsExe `
         -ArgumentList "--config", "`"$OrdsConfig`"", "serve" `
         -WorkingDirectory $OrdsHome
 }

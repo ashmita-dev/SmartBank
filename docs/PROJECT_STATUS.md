@@ -76,11 +76,23 @@ _Last updated: 14 Oct 2026_
 * The updated `ords_endpoints.sql` has **not been run** against the database.
 * `01_tables.sql` / `03_seed_data.sql` have not been executed on a fresh schema; `13_testing.sql` was not re-run.
 
+### Third pass: ORDS startup failure diagnosed (14 Oct 2026)
+
+* The listener **service** is now running (started via `start-backend.ps1`), and `xepdb1` is registered on `localhost:1521`.
+* First exception in the full ORDS log (at startup, before any request):
+  `The pool named: |smartbank|lo| is invalid and will be ignored: ... The database password secret in the wallet associated with the pool ... is missing`.
+  Requests then fail with HTTP 571, root cause `ORA-01005: null password given`. The
+  `TenantMapping…` frames are where ORDS reports the ignored pool, not the cause.
+* Confirmed with `ords config --db-pool smartbank list`: every setting is present except
+  `db.password`. `ORDS_PUBLIC_USER` is OPEN and not expired. The network path is fine.
+* Added `scripts/repair-ords-pool.ps1` and a pre-flight check in `start-backend.ps1`.
+
 ## Remaining work (needs you, about 3 minutes)
 
-1. `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1`, then accept the UAC prompt (starts the listener service and ORDS).
-2. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
-3. Optional: run the transfer scenario from DEMO_GUIDE §3 to see trigger → alert integration live.
+1. `powershell -ExecutionPolicy Bypass -File scripts\repair-ords-pool.ps1`: type the `ORDS_PUBLIC_USER` password, **or** add `-ResetPassword` if nobody knows it.
+2. `powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1` (expect "API is up").
+3. `powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1`, then type the `SMARTBANK_USER` password (expect "All 9 endpoints respond").
+4. Optional: run the transfer scenario from DEMO_GUIDE §3 to see trigger → alert integration live.
 
 ## Known limitations
 * Demo authentication runs in the browser; roles are enforced only in the UI. The ORDS module has no OAuth.

@@ -115,6 +115,9 @@ See [docs/SETUP.md](docs/SETUP.md) for the full setup and [docs/DEMO_GUIDE.md](d
 # 1. Backend: starts the Oracle listener service (UAC prompt) and ORDS, then checks the API
 powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1
 
+#    If it reports a missing ORDS pool password, run once first:
+#    powershell -ExecutionPolicy Bypass -File scripts\repair-ords-pool.ps1   (add -ResetPassword if unknown)
+
 # 2. One time only: publish the latest REST endpoints (hidden SMARTBANK_USER password prompt)
 powershell -ExecutionPolicy Bypass -File scripts\register-endpoints.ps1
 

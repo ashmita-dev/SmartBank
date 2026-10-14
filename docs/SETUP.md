@@ -157,6 +157,7 @@ ORDS endpoint until that module is protected with OAuth2 and CORS is limited to 
 |---|---|
 | Red **API offline** badge, "Cannot reach the SmartBank API" | ORDS not running, or the listener is down. Run `scripts\start-backend.ps1`. |
 | `lsnrctl start`: `Unable to OpenSCManager: err=5` | Not an administrator terminal. See §2. |
+| ORDS log: `The pool named: \|smartbank\|lo\| is invalid ... database password secret in the wallet ... is missing`; requests return HTTP 571 / ORA-01005 | The pool wallet has no password for `ORDS_PUBLIC_USER`. Close ORDS and run `scripts\repair-ords-pool.ps1` (hidden prompt), or add `-ResetPassword` if the password is unknown. `start-backend.ps1` checks for this before starting ORDS. |
 | ORDS `DatabaseConnectionError` / ORA-12518 | Listener started as a normal user instead of as the Windows service. Stop it and start the service (§2). |
 | ORA-12514 (service XEPDB1 not known) | Wait about 60 s after starting the listener, or check that `LOCAL_LISTENER` points at `localhost`. |
 | My Accounts says balances are unavailable; transfer form disabled | `GET /accounts`, `/merchants`, `/devices` are not published yet. Re-run `ords_endpoints.sql`. |
