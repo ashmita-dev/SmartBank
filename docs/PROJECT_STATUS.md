@@ -7,7 +7,7 @@ _Last updated: 14 Oct 2026 (ninth pass)_
 | Question | Answer (verified 14 Oct 2026) |
 |---|---|
 | Public frontend URL | `https://ashmita-dev.github.io/SmartBank/` |
-| What the public link does | **DEMO MODE**, after this pass's deployment: an in-browser simulation, labelled on every page. It makes no API calls and never claims Oracle processed anything. |
+| What the public link does | **DEMO MODE** (deployed and verified live): an in-browser simulation, labelled on every page. It makes no API calls and never claims Oracle processed anything. |
 | Is a public Oracle backend running? | **No.** No free option exists without a new account; Oracle Cloud needs card verification, which the owner declined. See [DEPLOYMENT.md](DEPLOYMENT.md). |
 | Genuine Oracle transactions | On the author's computer (REAL ORACLE MODE). Verified read-only against the laptop database this pass; full insert → trigger → alert verified on the Oracle 23ai rehearsal. |
 | Why the public site said "API offline" | The bundle pointed at a Cloudflare quick tunnel to the laptop; cloudflared lost its connection (the network blocked QUIC/UDP 7844) and the hostname stopped resolving. |
@@ -38,7 +38,8 @@ badge, a SIMULATED tag on created rows, and a reset button. The workflow publish
 | `npm run test:e2e:demo` (real Chrome, local preview of the Pages build) | **24/24**: banner and DEMO MODE badge on all 10 routes after direct link and refresh; simulated transfer = score 80, HIGH, FLAGGED, alert #85; labelled SIMULATED and never "inserted into BANK_TRANSACTION"; persists after refresh; analyst sees the tagged alert; alert change labelled simulated; reset; 390 px without horizontal scroll; no request except site files and Google Fonts; no console errors |
 | Real Chrome against the **laptop's live Oracle**, read-only | **12/12**: older-module sign-in with notice; name from `CUSTOMER`; LIVE badge; 12 customer transactions; transfer form with 8 payees (not submitted); analyst overview "Connected to Oracle" (102 transactions, 76 alerts); 76 alerts; refresh; **no write requests**; no page errors |
 | Transfer submitted to the laptop database | **Not run**: it writes permanent rows; needs the owner's approval |
-| Public site after deployment | Recorded in the commit and deployment notes below this table once checked |
+| GitHub Actions (push of `a5a505d`…`709d151`) | **Pass**: test, build and deploy jobs; build log: "publishing DEMO MODE" |
+| `npm run test:e2e:demo` against the **live** `https://ashmita-dev.github.io/SmartBank/` | **24/24**, no console errors. The first live run found that direct links returned HTTP 404 (Pages fallback). Fixed in `709d151`: each route now redirects (301) to a trailing-slash URL that returns 200. Unknown paths still return 404. |
 
 ## Eighth pass: production architecture, server-side security, rehearsal (14 Oct 2026)
 
