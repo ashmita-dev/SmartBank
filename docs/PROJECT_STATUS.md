@@ -45,6 +45,19 @@ read-only checks (12 tables, nothing INVALID, engine objects and views VALID, co
 invalid input 7/7 rejected and nothing inserted (5× HTTP 400; invalid type and malformed JSON give a
 generic ORDS 555).
 
+**Direct API test (23:22, owner-requested):** two requests sent straight to `POST /transactions`,
+each exactly once, on account AC1000011 (so tomorrow's AC1000001 demo inputs are untouched):
+
+| Record | Input | Predicted from the rules | Oracle (SQL) |
+|---|---|---|---|
+| **#246** | BigBasket, ₹1,800, Mumbai, DEV-AND-0001 (used on the account) | 0, LOW, no alert | HTTP 201; COMPLETED; `CALCULATE_RISK` 0 LOW; no alert |
+| **#247** | CryptoXchange, ₹1,75,000, Dubai, DEV-WIN-0009 (new on the account) | 95 (40+15+20+20), HIGH, FLAGGED, alert to Suresh Menon | HTTP 201; FLAGGED; 95 HIGH; alert **#122**, OPEN, Suresh Menon, all four reasons |
+
+Counts: 104→106 transactions, 77→78 alerts. `GET /transactions` and `GET /alerts/122` return both
+records. A read-only Chrome check of the website scored **10/10**: both rows in the customer list
+with the correct local time (11:22 pm) and after a refresh; alert #122 in Fraud Alerts with full
+details (customer, merchant, device, reasons); analyst search; KPIs 106/78; no writes; no page errors.
+
 **Not verified:** a clean reboot of the laptop (the services are set to Automatic, and the cold
 start of ORDS was tested); `13_testing.sql` on the live data (it commits rows).
 

@@ -74,14 +74,14 @@ An amber note says *"Local Oracle API without server-side sign-in detected… th
 
 ## 5. Demonstration walkthrough (≈ 10 minutes)
 
-**Overview (analyst).** KPI cards from Oracle: Customers **15**, Accounts **20**, Transactions **104**, Fraud Alerts **77**, Open **73**, High Risk **5** (values on 14 Oct night; they grow with each transfer). The daily chart comes from the view `V_DAILY_TRANSACTION_ANALYTICS`.
+**Overview (analyst).** KPI cards from Oracle: Customers **15**, Accounts **20**, Transactions **106**, Fraud Alerts **78**, Open **74**, High Risk **6** (values at 23:23 on 14 Oct; they grow with each transfer). The daily chart comes from the view `V_DAILY_TRANSACTION_ANALYTICS`.
 *Say: "Every number is a live SQL count served by ORDS."*
 
 **Transactions.** Type `Lagos` in the search box, then click **FLAGGED**, then **UNDER REVIEW**. *Say: "Payment status and fraud review are separate. MEDIUM risk gets an alert but stays COMPLETED; only HIGH is FLAGGED."* This shows joins across five tables through foreign keys.
 
 **Fraud Alerts.** Filters are **ALL / HIGH / MEDIUM** plus a status list. Open an alert to see the score, reasons, customer, merchant, device and analyst. The buttons are **Start investigation · Mark false positive · Close alert · Confirm fraud**, and each one updates `FRAUD_ALERT` (constraint `CHK_ALERT_STATUS`).
 
-**Analyst Workload.** Open alerts: Kavita Rao **37**, Suresh Menon **36**. *Say: "GENERATE_ALERT assigns new alerts to the least-loaded analyst."*
+**Analyst Workload.** Open alerts: Kavita Rao **37**, Suresh Menon **37** (equal now; the next alert goes to either). *Say: "GENERATE_ALERT assigns new alerts to the least-loaded analyst."*
 
 **Customer portal.** **Sign out** → **Customer** tab → sign in. The dashboard name comes from `CUSTOMER`. **My Accounts:** AC1000001 (savings) and AC1000011 (current). Only this customer's data is shown. *Say: "Customers and accounts use a supertype/subtype EER design."* (There is no separate *Customers* page; customer details appear in the portal and in the transaction and alert details.)
 
@@ -95,8 +95,10 @@ An amber note says *"Local Oracle API without server-side sign-in detected… th
 |---|---|---|---|
 | Low risk | **#241** | AC1000001 → Amazon India, ₹2,500, Mumbai, DEV-AND-0001 | **COMPLETED**, no alert; `CALCULATE_RISK(241)` = **0 (LOW)** |
 | High risk | **#242** | AC1000001 → QuickCash Loans, ₹1,50,000, Lagos, DEV-WIN-0003 | **FLAGGED**; alert **#121**, **95 HIGH**, assigned to **Suresh Menon**; then set to **INVESTIGATING** by the analyst test |
+| Low risk, direct API | **#246** | AC1000011 → BigBasket, ₹1,800, Mumbai, DEV-AND-0001 (23:22) | **COMPLETED**, no alert; recomputed **0 (LOW)** |
+| High risk, direct API | **#247** | AC1000011 → CryptoXchange, ₹1,75,000, Dubai, DEV-WIN-0009 (23:22) | **FLAGGED**; alert **#122**, **95 HIGH**, Suresh Menon, **OPEN** |
 
-Score of #242: 40 (amount) + 15 (#241 one second earlier) + 20 (new device) + 20 (Lagos) = **95**. Oracle recomputed the same 95. The IDs jumped from 221 to 241 because Oracle caches identity numbers in blocks of 20; no data is missing.
+Score of #242 and #247: 40 (amount) + 15 (a transfer seconds earlier on the same account) + 20 (new device) + 20 (location) = **95**. Oracle recomputed the same 95. #246 and #247 were sent straight to `POST /transactions` (the API the website uses) and then shown by the website. Their account is AC1000011, so tomorrow's AC1000001 steps are unaffected. The IDs jumped from 221 to 241 because Oracle caches identity numbers in blocks of 20; no data is missing.
 
 **Tomorrow, live in front of the professor.** Sign in as the **Customer** → **New Transfer**:
 
@@ -200,6 +202,7 @@ Type `exit` to leave. Do **not** run `13_testing.sql` or any create/seed script 
 | API | Invalid input: missing or negative amount, > 1 crore, unknown account, missing location | HTTP **400**, nothing inserted |
 | API | Invalid transaction type, malformed JSON | rejected, nothing inserted, but as a generic ORDS **555** error, not a clean 400 (limitation; the website form cannot send these) |
 | **Live** | Genuine transfers through the frontend → Oracle (#241 LOW 0, #242 HIGH 95 FLAGGED, alert #121 → INVESTIGATING), confirmed by SQL | **18/18** · counts 102→104 transactions, 76→77 alerts |
+| **Live** | Direct `POST /transactions` (#246 LOW 0 COMPLETED; #247 HIGH 95 FLAGGED, alert #122), confirmed by SQL and the API, then displayed by the website (lists, alert detail, refresh, KPIs) | ✅ predictions matched · counts 104→106 transactions, 77→78 alerts · browser check **10/10** |
 | Fix | Times from the laptop API were shown 5½ h late (local time sent as UTC); fixed in the frontend for the local API | ✅ the new row showed 10:51 pm at 10:51 pm |
 
 **Limitations (say them honestly):**
